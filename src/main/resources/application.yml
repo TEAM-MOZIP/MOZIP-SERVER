@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: mozip-server
+
+  profiles:
+    active: local
