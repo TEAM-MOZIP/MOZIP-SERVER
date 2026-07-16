@@ -1,0 +1,27 @@
+name: '문서 작성 및 수정'
+description: '문서 작성 및 수정 관련 이슈를 생성할 때 사용하는 템플릿입니다'
+title: '[docs] '
+labels: '📄 Docs'
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: 문서 관련 내용을 작성해 주세요.
+      placeholder: 어떤 문서를 작성하거나 수정해야 하는지 구체적으로 작성해주세요.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Tasks
+      description: 문서 작업을 위한 세부 작업 목록을 체크리스트로 작성해주세요.
+      placeholder: |-
+        - [ ] 문서 구조 설계
+        - [ ] 내용 작성 및 수정
+        - [ ] 검토 및 배포
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: ETC
+      description: 참고 문서나 가이드라인이 있다면 작성해주세요.
+      placeholder: 기존 문서, 작성 가이드, 참고 자료, 문서 템플릿 등
