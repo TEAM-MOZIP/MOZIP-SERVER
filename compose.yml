@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mozip-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: mozip
+      POSTGRES_USER: mozip
+      POSTGRES_PASSWORD: mozip
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - mozip-postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mozip -d mozip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mozip-postgres-data:
