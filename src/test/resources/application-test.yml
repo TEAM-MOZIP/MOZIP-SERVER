@@ -1,0 +1,4 @@
+jwt:
+  secret: "ssrYB+/2oM4vlC0cwbdy2FzS8aaL2t4freUWilsY+tpW/kz4qT/HXAENUy/wTiHn"
+  access-token-expire-seconds: 1800
+  refresh-token-expire-seconds: 1209600
