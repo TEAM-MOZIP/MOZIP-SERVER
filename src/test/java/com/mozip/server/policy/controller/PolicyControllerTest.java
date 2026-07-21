@@ -6,6 +6,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.mozip.server.auth.config.CustomAccessDeniedHandler;
+import com.mozip.server.auth.config.CustomAuthenticationEntryPoint;
+import com.mozip.server.auth.config.SecurityConfig;
+import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
@@ -20,11 +24,15 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Pageable;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(PolicyController.class)
+@Import({SecurityConfig.class, CustomAuthenticationEntryPoint.class, CustomAccessDeniedHandler.class, JwtTokenProvider.class})
+@ActiveProfiles("test")
 class PolicyControllerTest {
 
     @Autowired
