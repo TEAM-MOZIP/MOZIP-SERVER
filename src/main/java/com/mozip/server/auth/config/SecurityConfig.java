@@ -34,7 +34,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/policies/**", "/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
+                        .requestMatchers("/api/policies/**", "/swagger-ui/**", "/v3/api-docs/**", "/error",
+                                "/api/auth/kakao/login", "/api/auth/refresh").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception
