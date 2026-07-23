@@ -96,4 +96,21 @@ class JwtTokenProviderTest {
         assertThatThrownBy(() -> jwtTokenProvider.parseAccessTokenClaims(refreshToken))
                 .isInstanceOf(InvalidTokenTypeException.class);
     }
+
+    @Test
+    void ACCESS_토큰으로_parseRefreshTokenClaims를_호출하면_InvalidTokenTypeException이_발생한다() {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+
+        assertThatThrownBy(() -> jwtTokenProvider.parseRefreshTokenClaims(accessToken))
+                .isInstanceOf(InvalidTokenTypeException.class);
+    }
+
+    @Test
+    void REFRESH_토큰으로_parseRefreshTokenClaims를_호출하면_정상_파싱된다() {
+        String refreshToken = jwtTokenProvider.createRefreshToken("1");
+
+        Claims claims = jwtTokenProvider.parseRefreshTokenClaims(refreshToken);
+
+        assertThat(claims.getSubject()).isEqualTo("1");
+    }
 }
