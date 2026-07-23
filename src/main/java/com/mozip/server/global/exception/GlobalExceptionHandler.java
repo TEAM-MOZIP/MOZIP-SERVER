@@ -1,7 +1,6 @@
 package com.mozip.server.global.exception;
 
 import com.mozip.server.global.dto.ErrorResponse;
-import com.mozip.server.policy.exception.PolicyNotFoundException;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
@@ -13,8 +12,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(PolicyNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handlePolicyNotFoundException(PolicyNotFoundException e) {
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
         ErrorCode errorCode = e.getErrorCode();
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode.name(), e.getMessage()));

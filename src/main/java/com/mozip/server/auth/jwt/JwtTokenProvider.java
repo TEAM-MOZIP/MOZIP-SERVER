@@ -6,6 +6,7 @@ import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
@@ -50,6 +51,14 @@ public class JwtTokenProvider {
         return claims;
     }
 
+    public Claims parseRefreshTokenClaims(String token) {
+        Claims claims = parseClaims(token);
+        if (isAccessToken(claims)) {
+            throw new InvalidTokenTypeException("REFRESH 토큰이 아닙니다. tokenType=" + claims.get(TOKEN_TYPE_CLAIM));
+        }
+        return claims;
+    }
+
     public boolean isAccessToken(Claims claims) {
         return TokenType.ACCESS.name().equals(claims.get(TOKEN_TYPE_CLAIM, String.class));
     }
@@ -57,6 +66,7 @@ public class JwtTokenProvider {
     private String createToken(String subject, TokenType tokenType, long expireSeconds) {
         Instant now = Instant.now();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .issuer(ISSUER)
                 .subject(subject)
                 .claim(TOKEN_TYPE_CLAIM, tokenType.name())
