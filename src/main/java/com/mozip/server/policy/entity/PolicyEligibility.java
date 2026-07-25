@@ -1,7 +1,10 @@
 package com.mozip.server.policy.entity;
 
+import com.mozip.server.user.entity.IncomeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -44,8 +47,9 @@ public class PolicyEligibility {
     @Column(name = "gender_condition", length = 20)
     private String genderCondition;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "income_type", length = 20)
-    private String incomeType;
+    private IncomeType incomeType;
 
     @Column(name = "minimum_income_value")
     private Integer minimumIncomeValue;
@@ -75,7 +79,7 @@ public class PolicyEligibility {
 
     @Builder
     public PolicyEligibility(Policy policy, Integer minimumAge, Integer maximumAge, String genderCondition,
-                              String incomeType, Integer minimumIncomeValue, Integer maximumIncomeValue,
+                              IncomeType incomeType, Integer minimumIncomeValue, Integer maximumIncomeValue,
                               List<String> allowedEmploymentStatuses, List<String> allowedHouseholdTypes,
                               Map<String, Object> additionalConditions) {
         this.policy = policy;

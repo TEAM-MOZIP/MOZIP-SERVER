@@ -1,6 +1,7 @@
 package com.mozip.server.policy.dto;
 
 import com.mozip.server.policy.entity.PolicyEligibility;
+import com.mozip.server.user.entity.IncomeType;
 import java.util.List;
 import java.util.Map;
 
@@ -8,7 +9,7 @@ public record PolicyEligibilityResponse(
         Integer minimumAge,
         Integer maximumAge,
         String genderCondition,
-        String incomeType,
+        IncomeType incomeType,
         Integer minimumIncomeValue,
         Integer maximumIncomeValue,
         List<String> allowedEmploymentStatuses,
