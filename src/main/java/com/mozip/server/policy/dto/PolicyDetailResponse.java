@@ -1,5 +1,6 @@
 package com.mozip.server.policy.dto;
 
+import com.mozip.server.policy.domain.PolicyAvailabilityResult;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyEligibility;
@@ -22,10 +23,12 @@ public record PolicyDetailResponse(
         PolicyStatus status,
         String sourceUrl,
         String organizationName,
-        PolicyEligibilityResponse eligibility
+        PolicyEligibilityResponse eligibility,
+        PolicyAvailabilityResponse availability
 ) {
 
-    public static PolicyDetailResponse from(Policy policy, PolicyEligibility eligibility) {
+    public static PolicyDetailResponse from(Policy policy, PolicyEligibility eligibility,
+                                             PolicyAvailabilityResult availabilityResult) {
         return new PolicyDetailResponse(
                 policy.getId(),
                 policy.getTitle(),
@@ -41,7 +44,8 @@ public record PolicyDetailResponse(
                 policy.getStatus(),
                 policy.getSourceUrl(),
                 policy.getOrganization().getName(),
-                eligibility != null ? PolicyEligibilityResponse.from(eligibility) : null
+                eligibility != null ? PolicyEligibilityResponse.from(eligibility) : null,
+                PolicyAvailabilityResponse.from(availabilityResult)
         );
     }
 }

@@ -11,6 +11,9 @@ import com.mozip.server.auth.config.CustomAuthenticationEntryPoint;
 import com.mozip.server.auth.config.SecurityConfig;
 import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.PolicyAvailability;
+import com.mozip.server.policy.domain.PolicyAvailabilityReason;
+import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
@@ -46,7 +49,8 @@ class PolicyControllerTest {
         PolicySummaryResponse summary = new PolicySummaryResponse(
                 1L, "청년 월세 지원", "월세 지원 사업", "서울특별시",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
-                RegionScope.REGIONAL, PolicyStatus.OPEN
+                RegionScope.REGIONAL, PolicyStatus.OPEN,
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD)
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
@@ -56,7 +60,8 @@ class PolicyControllerTest {
         mockMvc.perform(get("/api/policies"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].title").value("청년 월세 지원"));
+                .andExpect(jsonPath("$.content[0].title").value("청년 월세 지원"))
+                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"));
     }
 
     @Test
@@ -64,13 +69,15 @@ class PolicyControllerTest {
         PolicyDetailResponse detail = new PolicyDetailResponse(
                 1L, "청년 월세 지원", "월세 지원 사업", "상세 설명", "지원 대상", "지원 내용", "온라인 신청",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
-                RegionScope.REGIONAL, PolicyStatus.OPEN, "https://example.com", "서울특별시", null
+                RegionScope.REGIONAL, PolicyStatus.OPEN, "https://example.com", "서울특별시", null,
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD)
         );
         when(policyService.getPolicyDetail(1L)).thenReturn(detail);
 
         mockMvc.perform(get("/api/policies/1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("청년 월세 지원"));
+                .andExpect(jsonPath("$.title").value("청년 월세 지원"))
+                .andExpect(jsonPath("$.availability.status").value("AVAILABLE"));
     }
 
     @Test
