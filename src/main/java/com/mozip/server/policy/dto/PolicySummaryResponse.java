@@ -1,5 +1,6 @@
 package com.mozip.server.policy.dto;
 
+import com.mozip.server.policy.domain.PolicyAvailabilityResult;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyStatus;
@@ -15,10 +16,11 @@ public record PolicySummaryResponse(
         LocalDate applicationStartDate,
         LocalDate applicationEndDate,
         RegionScope regionScope,
-        PolicyStatus status
+        PolicyStatus status,
+        PolicyAvailabilityResponse availability
 ) {
 
-    public static PolicySummaryResponse from(Policy policy) {
+    public static PolicySummaryResponse from(Policy policy, PolicyAvailabilityResult availabilityResult) {
         return new PolicySummaryResponse(
                 policy.getId(),
                 policy.getTitle(),
@@ -28,7 +30,8 @@ public record PolicySummaryResponse(
                 policy.getApplicationStartDate(),
                 policy.getApplicationEndDate(),
                 policy.getRegionScope(),
-                policy.getStatus()
+                policy.getStatus(),
+                PolicyAvailabilityResponse.from(availabilityResult)
         );
     }
 }
