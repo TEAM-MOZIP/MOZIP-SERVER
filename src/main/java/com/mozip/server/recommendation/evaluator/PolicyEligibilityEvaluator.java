@@ -8,6 +8,9 @@ import com.mozip.server.recommendation.domain.ConditionStatus;
 import com.mozip.server.recommendation.domain.ConditionType;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
+import com.mozip.server.region.entity.Region;
+import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.UserProfile;
 import java.time.Clock;
@@ -107,8 +110,11 @@ public class PolicyEligibilityEvaluator {
         if (policyRegionIds.isEmpty()) {
             return new ConditionResult(ConditionType.REGION, ConditionStatus.NEEDS_REVIEW, "정책 지원 지역 정보가 등록되지 않음");
         }
-        Long userRegionId = userProfile.getRegion().getId();
-        if (policyRegionIds.contains(userRegionId)) {
+        Region userRegion = userProfile.getRegion();
+        if (userRegion == null) {
+            return new ConditionResult(ConditionType.REGION, ConditionStatus.NEEDS_REVIEW, "사용자 지역 정보가 없어 자동 판정할 수 없음");
+        }
+        if (policyRegionIds.contains(userRegion.getId())) {
             return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "지역 조건을 충족합니다.");
         }
         return new ConditionResult(ConditionType.REGION, ConditionStatus.NOT_MATCHED, "정책 지원 지역과 일치하지 않습니다.");
@@ -159,7 +165,12 @@ public class PolicyEligibilityEvaluator {
         if (allowedEmploymentStatuses == null || allowedEmploymentStatuses.isEmpty()) {
             return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.MATCHED, "고용 상태 제한 없음");
         }
-        if (allowedEmploymentStatuses.contains(userProfile.getEmploymentStatus().name())) {
+        EmploymentStatus employmentStatus = userProfile.getEmploymentStatus();
+        if (employmentStatus == null) {
+            return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.NEEDS_REVIEW,
+                    "사용자 고용 상태 정보가 없어 자동 판정할 수 없음");
+        }
+        if (allowedEmploymentStatuses.contains(employmentStatus.name())) {
             return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.MATCHED, "고용 상태 조건을 충족합니다.");
         }
         return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.NOT_MATCHED,
@@ -172,7 +183,12 @@ public class PolicyEligibilityEvaluator {
         if (allowedHouseholdTypes == null || allowedHouseholdTypes.isEmpty()) {
             return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.MATCHED, "가구 유형 제한 없음");
         }
-        if (allowedHouseholdTypes.contains(userProfile.getHouseholdType().name())) {
+        HouseholdType householdType = userProfile.getHouseholdType();
+        if (householdType == null) {
+            return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.NEEDS_REVIEW,
+                    "사용자 가구 유형 정보가 없어 자동 판정할 수 없음");
+        }
+        if (allowedHouseholdTypes.contains(householdType.name())) {
             return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.MATCHED, "가구 유형 조건을 충족합니다.");
         }
         return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.NOT_MATCHED,
