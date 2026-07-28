@@ -64,7 +64,8 @@ class PolicyRecommendationControllerTest {
                 new PolicyEvaluationResponse.EligibilityResponse(
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
-                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD)
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                true
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true);
         when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), any(Pageable.class)))
@@ -78,7 +79,43 @@ class PolicyRecommendationControllerTest {
                 .andExpect(jsonPath("$.content[0].title").value("청년내일채움공제"))
                 .andExpect(jsonPath("$.content[0].organizationName").value("고용노동부"))
                 .andExpect(jsonPath("$.content[0].eligibility.status").value("ELIGIBLE"))
-                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"));
+                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.content[0].bookmarked").value(true));
+    }
+
+    @Test
+    void 북마크된_정책과_북마크되지_않은_정책이_함께_있으면_각각_다르게_직렬화된다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyRecommendationResponse bookmarkedItem = new PolicyRecommendationResponse(
+                1L, "청년내일채움공제", "고용노동부",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyEvaluationResponse.EligibilityResponse(
+                        EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
+                new PolicyEvaluationResponse.AvailabilityResponse(
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                true
+        );
+        PolicyRecommendationResponse notBookmarkedItem = new PolicyRecommendationResponse(
+                2L, "국민취업지원제도", "고용노동부",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyEvaluationResponse.EligibilityResponse(
+                        EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
+                new PolicyEvaluationResponse.AvailabilityResponse(
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                false
+        );
+        PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(
+                List.of(bookmarkedItem, notBookmarkedItem), 0, 20, 2, 1, true, true);
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/recommendations/policies")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].policyId").value(1))
+                .andExpect(jsonPath("$.content[0].bookmarked").value(true))
+                .andExpect(jsonPath("$.content[1].policyId").value(2))
+                .andExpect(jsonPath("$.content[1].bookmarked").value(false));
     }
 
     @Test

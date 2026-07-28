@@ -2,7 +2,13 @@ package com.mozip.server.recommendation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
+import com.mozip.server.bookmark.entity.Bookmark;
+import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.ApplicationType;
@@ -35,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -64,6 +71,9 @@ class PolicyRecommendationServiceTest {
 
     @Autowired
     private PolicyRegionRepository policyRegionRepository;
+
+    @MockitoSpyBean
+    private BookmarkRepository bookmarkRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -142,6 +152,63 @@ class PolicyRecommendationServiceTest {
         assertThat(response.totalPages()).isZero();
         assertThat(response.first()).isTrue();
         assertThat(response.last()).isTrue();
+        verify(bookmarkRepository, never()).findBookmarkedPolicyIds(any(), any());
+    }
+
+    @Test
+    void 북마크한_정책과_하지_않은_정책이_함께_있으면_각각_정확히_표시된다() {
+        User user = createUser("bookmark-mixed@example.com", "bookmark-mixed-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy bookmarkedPolicy = createPolicy(KEYWORD + "-북마크됨", RegionScope.NATIONAL);
+        Policy notBookmarkedPolicy = createPolicy(KEYWORD + "-북마크안됨", RegionScope.NATIONAL);
+        bookmarkRepository.save(Bookmark.builder().user(user).policy(bookmarkedPolicy).build());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크", null, null, null), PageRequest.of(0, 20));
+
+        assertThat(findByPolicyId(response, bookmarkedPolicy.getId()).bookmarked()).isTrue();
+        assertThat(findByPolicyId(response, notBookmarkedPolicy.getId()).bookmarked()).isFalse();
+    }
+
+    @Test
+    void 북마크가_하나도_없으면_모두_bookmarked가_false다() {
+        User user = createUser("bookmark-none@example.com", "bookmark-none-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        createPolicy(KEYWORD + "-북마크없음", RegionScope.NATIONAL);
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크없음", null, null, null), PageRequest.of(0, 20));
+
+        assertThat(response.content()).isNotEmpty();
+        assertThat(response.content()).allMatch(item -> !item.bookmarked());
+    }
+
+    @Test
+    void 다른_사용자의_북마크는_반영되지_않는다() {
+        User owner = createUser("bookmark-owner@example.com", "bookmark-owner-1");
+        User viewer = createUser("bookmark-viewer@example.com", "bookmark-viewer-1");
+        createProfile(viewer, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy policy = createPolicy(KEYWORD + "-타인북마크", RegionScope.NATIONAL);
+        bookmarkRepository.save(Bookmark.builder().user(owner).policy(policy).build());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                viewer.getId(), new PolicySearchRequest(KEYWORD + "-타인북마크", null, null, null), PageRequest.of(0, 20));
+
+        assertThat(response.content().get(0).bookmarked()).isFalse();
+    }
+
+    @Test
+    void 북마크_배치_조회는_한_번만_호출된다() {
+        User user = createUser("bookmark-batch@example.com", "bookmark-batch-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        createPolicy(KEYWORD + "-배치1", RegionScope.NATIONAL);
+        createPolicy(KEYWORD + "-배치2", RegionScope.NATIONAL);
+        createPolicy(KEYWORD + "-배치3", RegionScope.NATIONAL);
+
+        policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-배치", null, null, null), PageRequest.of(0, 20));
+
+        verify(bookmarkRepository, times(1)).findBookmarkedPolicyIds(any(), any());
     }
 
     @Test
