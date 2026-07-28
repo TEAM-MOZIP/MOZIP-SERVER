@@ -13,8 +13,10 @@ import com.mozip.server.policy.repository.PolicyRegionRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.repository.PolicySpecifications;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
+import com.mozip.server.recommendation.domain.PolicyRecommendationCandidate;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.evaluator.PolicyEligibilityEvaluator;
+import com.mozip.server.recommendation.evaluator.PolicyRecommendationComparator;
 import com.mozip.server.user.entity.UserProfile;
 import com.mozip.server.user.exception.UserProfileNotFoundException;
 import com.mozip.server.user.repository.UserProfileRepository;
@@ -23,8 +25,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,10 +69,10 @@ public class PolicyRecommendationService {
                 PolicySpecifications.availableInRegion(condition.regionId()),
                 PolicySpecifications.hasStatus(condition.status())
         );
-        Page<Policy> policies = policyRepository.findAll(spec, pageable);
+        List<Policy> policies = policyRepository.findAll(spec, Sort.unsorted());
 
-        List<Long> policyIds = policies.getContent().stream().map(Policy::getId).toList();
-        List<Long> regionalPolicyIds = policies.getContent().stream()
+        List<Long> policyIds = policies.stream().map(Policy::getId).toList();
+        List<Long> regionalPolicyIds = policies.stream()
                 .filter(policy -> policy.getRegionScope() == RegionScope.REGIONAL)
                 .map(Policy::getId)
                 .toList();
@@ -86,22 +88,45 @@ public class PolicyRecommendationService {
                         .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId(),
                                 Collectors.mapping(policyRegion -> policyRegion.getRegion().getId(), Collectors.toList())));
 
-        Set<Long> bookmarkedPolicyIds = policyIds.isEmpty()
+        List<PolicyRecommendationCandidate> candidates = policies.stream()
+                .map(policy -> {
+                    PolicyEligibility eligibility = eligibilityByPolicyId.get(policy.getId());
+                    List<Long> regionIds = regionIdsByPolicyId.getOrDefault(policy.getId(), List.of());
+                    PolicyEligibilityResult eligibilityResult =
+                            policyEligibilityEvaluator.evaluate(userProfile, policy, regionIds, eligibility);
+                    PolicyAvailabilityResult availabilityResult = policyAvailabilityEvaluator.evaluate(policy);
+                    return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult);
+                })
+                .sorted(PolicyRecommendationComparator.comparator())
+                .toList();
+
+        return toPageResponse(candidates, userId, pageable);
+    }
+
+    private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,
+                                                                        Long userId, Pageable pageable) {
+        int totalElements = candidates.size();
+        int size = pageable.getPageSize();
+        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
+        int offset = (int) pageable.getOffset();
+
+        List<PolicyRecommendationCandidate> pageContent = offset >= totalElements
+                ? List.of()
+                : candidates.subList(offset, Math.min(offset + size, totalElements));
+
+        List<Long> pagePolicyIds = pageContent.stream().map(candidate -> candidate.policy().getId()).toList();
+        Set<Long> bookmarkedPolicyIds = pagePolicyIds.isEmpty()
                 ? Set.of()
-                : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, policyIds));
+                : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, pagePolicyIds));
 
-        Page<PolicyRecommendationResponse> responses = policies.map(policy -> {
-            PolicyEligibility eligibility = eligibilityByPolicyId.get(policy.getId());
-            List<Long> regionIds = regionIdsByPolicyId.getOrDefault(policy.getId(), List.of());
-            boolean bookmarked = bookmarkedPolicyIds.contains(policy.getId());
+        List<PolicyRecommendationResponse> content = pageContent.stream()
+                .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
+                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId())))
+                .toList();
 
-            PolicyEligibilityResult eligibilityResult =
-                    policyEligibilityEvaluator.evaluate(userProfile, policy, regionIds, eligibility);
-            PolicyAvailabilityResult availabilityResult = policyAvailabilityEvaluator.evaluate(policy);
+        boolean first = pageable.getPageNumber() == 0;
+        boolean last = pageable.getPageNumber() >= totalPages - 1;
 
-            return PolicyRecommendationResponse.from(policy, eligibilityResult, availabilityResult, bookmarked);
-        });
-
-        return PageResponse.from(responses);
+        return new PageResponse<>(content, pageable.getPageNumber(), size, totalElements, totalPages, first, last);
     }
 }

@@ -1,9 +1,11 @@
 package com.mozip.server.policy.repository;
 
 import com.mozip.server.policy.entity.Policy;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,6 +18,10 @@ public interface PolicyRepository extends JpaRepository<Policy, Long>, JpaSpecif
     @Override
     @EntityGraph(attributePaths = "organization")
     Page<Policy> findAll(Specification<Policy> spec, Pageable pageable);
+
+    @Override
+    @EntityGraph(attributePaths = "organization")
+    List<Policy> findAll(Specification<Policy> spec, Sort sort);
 
     @EntityGraph(attributePaths = "organization")
     @Query("SELECT p FROM Policy p WHERE p.id = :id")

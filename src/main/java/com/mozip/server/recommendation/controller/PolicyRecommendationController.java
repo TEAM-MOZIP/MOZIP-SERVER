@@ -8,7 +8,6 @@ import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,7 +25,8 @@ public class PolicyRecommendationController {
     }
 
     @Operation(summary = "추천 정책 목록 조회",
-            description = "로그인한 사용자 기준으로 정책 목록에 대한 적격성과 신청 가능 여부를 함께 조회한다.")
+            description = "로그인한 사용자 기준으로 정책 목록에 대한 적격성과 신청 가능 여부를 함께 조회한다. "
+                    + "정렬은 적격성 판정 결과(적격 → 보류 → 부적격) 기준으로 고정되며, 요청의 sort 파라미터는 반영되지 않는다.")
     @GetMapping("/api/recommendations/policies")
     public PageResponse<PolicyRecommendationResponse> getRecommendations(
             @AuthenticationPrincipal String userId,
@@ -34,7 +34,7 @@ public class PolicyRecommendationController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
-            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable) {
+            @PageableDefault(size = 20) Pageable pageable) {
         PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status);
         return policyRecommendationService.getRecommendations(Long.valueOf(userId), condition, pageable);
     }
