@@ -141,6 +141,28 @@ class PolicyEligibilityEvaluatorTest {
     }
 
     @Test
+    void 지역_정책인데_사용자_지역이_null이면_NEEDS_REVIEW이고_NPE가_발생하지_않는다() {
+        UserProfile userProfile = baseProfile().region(null).build();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        PolicyEligibilityResult result = evaluator.evaluate(userProfile, regionalPolicy(), List.of(seoulRegion.getId()), eligibility);
+
+        ConditionResult region = conditionOf(result, ConditionType.REGION);
+        assertThat(region.status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(region.reason()).isEqualTo("사용자 지역 정보가 없어 자동 판정할 수 없음");
+    }
+
+    @Test
+    void 전국_정책이면_사용자_지역이_null이어도_MATCHED다() {
+        UserProfile userProfile = baseProfile().region(null).build();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        ConditionResult region = evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.REGION);
+
+        assertThat(region.status()).isEqualTo(ConditionStatus.MATCHED);
+    }
+
+    @Test
     void 생년월일이_평가_기준일보다_미래이면_NEEDS_REVIEW다() {
         UserProfile userProfile = baseProfile().birthDate(LocalDate.of(2030, 1, 1)).build();
         PolicyEligibility eligibility = baseEligibility().minimumAge(20).build();
@@ -311,6 +333,29 @@ class PolicyEligibilityEvaluatorTest {
     }
 
     @Test
+    void 고용상태_제한이_있는데_사용자_고용상태가_null이면_NEEDS_REVIEW이고_NPE가_발생하지_않는다() {
+        UserProfile userProfile = baseProfile().employmentStatus(null).build();
+        PolicyEligibility eligibility = baseEligibility().allowedEmploymentStatuses(List.of("JOB_SEEKER")).build();
+
+        ConditionResult employmentStatus =
+                evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.EMPLOYMENT_STATUS);
+
+        assertThat(employmentStatus.status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(employmentStatus.reason()).isEqualTo("사용자 고용 상태 정보가 없어 자동 판정할 수 없음");
+    }
+
+    @Test
+    void 고용상태_제한이_없으면_사용자_고용상태가_null이어도_MATCHED다() {
+        UserProfile userProfile = baseProfile().employmentStatus(null).build();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        ConditionResult employmentStatus =
+                evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.EMPLOYMENT_STATUS);
+
+        assertThat(employmentStatus.status()).isEqualTo(ConditionStatus.MATCHED);
+    }
+
+    @Test
     void 가구유형이_null이거나_빈배열이면_MATCHED_포함되면_MATCHED_미포함이면_NOT_MATCHED다() {
         UserProfile userProfile = baseProfile().householdType(HouseholdType.SINGLE).build();
 
@@ -327,6 +372,46 @@ class PolicyEligibilityEvaluatorTest {
                 .isEqualTo(ConditionStatus.MATCHED);
         assertThat(evaluateSingle(userProfile, nationalPolicy(), withoutMatch, ConditionType.HOUSEHOLD_TYPE).status())
                 .isEqualTo(ConditionStatus.NOT_MATCHED);
+    }
+
+    @Test
+    void 가구유형_제한이_있는데_사용자_가구유형이_null이면_NEEDS_REVIEW이고_NPE가_발생하지_않는다() {
+        UserProfile userProfile = baseProfile().householdType(null).build();
+        PolicyEligibility eligibility = baseEligibility().allowedHouseholdTypes(List.of("SINGLE")).build();
+
+        ConditionResult householdType =
+                evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.HOUSEHOLD_TYPE);
+
+        assertThat(householdType.status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(householdType.reason()).isEqualTo("사용자 가구 유형 정보가 없어 자동 판정할 수 없음");
+    }
+
+    @Test
+    void 가구유형_제한이_없으면_사용자_가구유형이_null이어도_MATCHED다() {
+        UserProfile userProfile = baseProfile().householdType(null).build();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        ConditionResult householdType =
+                evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.HOUSEHOLD_TYPE);
+
+        assertThat(householdType.status()).isEqualTo(ConditionStatus.MATCHED);
+    }
+
+    @Test
+    void 지역_고용상태_가구유형이_모두_null이고_전부_제한이_있어도_예외없이_NEEDS_REVIEW로_평가된다() {
+        UserProfile userProfile = baseProfile().region(null).employmentStatus(null).householdType(null).build();
+        PolicyEligibility eligibility = baseEligibility()
+                .allowedEmploymentStatuses(List.of("JOB_SEEKER"))
+                .allowedHouseholdTypes(List.of("SINGLE"))
+                .build();
+
+        PolicyEligibilityResult result =
+                evaluator.evaluate(userProfile, regionalPolicy(), List.of(seoulRegion.getId()), eligibility);
+
+        assertThat(conditionOf(result, ConditionType.REGION).status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(conditionOf(result, ConditionType.EMPLOYMENT_STATUS).status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(conditionOf(result, ConditionType.HOUSEHOLD_TYPE).status()).isEqualTo(ConditionStatus.NEEDS_REVIEW);
+        assertThat(result.overallStatus()).isEqualTo(EligibilityStatus.NEEDS_REVIEW);
     }
 
     @Test
