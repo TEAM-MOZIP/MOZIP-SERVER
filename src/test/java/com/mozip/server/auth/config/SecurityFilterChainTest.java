@@ -1,6 +1,7 @@
 package com.mozip.server.auth.config;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.mozip.server.auth.jwt.JwtTokenProvider;
@@ -48,6 +49,16 @@ class SecurityFilterChainTest {
         public String protectedEndpoint() {
             return "protected";
         }
+
+        @GetMapping("/api/regions")
+        public String regions() {
+            return "regions";
+        }
+
+        @GetMapping("/api/categories")
+        public String categories() {
+            return "categories";
+        }
     }
 
     @TestConfiguration
@@ -68,6 +79,30 @@ class SecurityFilterChainTest {
     @Test
     void 보호_경로는_토큰_없이_접근하면_401이다() throws Exception {
         mockMvc.perform(get("/test/protected"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 지역_목록_조회는_토큰_없이_접근_가능하다() throws Exception {
+        mockMvc.perform(get("/api/regions"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 카테고리_목록_조회는_토큰_없이_접근_가능하다() throws Exception {
+        mockMvc.perform(get("/api/categories"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 지역_경로에_대한_POST는_토큰_없이_접근하면_401이다() throws Exception {
+        mockMvc.perform(post("/api/regions"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 카테고리_경로에_대한_POST는_토큰_없이_접근하면_401이다() throws Exception {
+        mockMvc.perform(post("/api/categories"))
                 .andExpect(status().isUnauthorized());
     }
 
