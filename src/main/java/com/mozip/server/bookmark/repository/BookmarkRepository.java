@@ -1,6 +1,7 @@
 package com.mozip.server.bookmark.repository;
 
 import com.mozip.server.bookmark.entity.Bookmark;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -17,4 +18,7 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
     @Modifying
     @Query("DELETE FROM Bookmark b WHERE b.user.id = :userId AND b.policy.id = :policyId")
     void deleteByUserIdAndPolicyId(@Param("userId") Long userId, @Param("policyId") Long policyId);
+
+    @Query("SELECT b.policy.id FROM Bookmark b WHERE b.user.id = :userId AND b.policy.id IN :policyIds")
+    List<Long> findBookmarkedPolicyIds(@Param("userId") Long userId, @Param("policyIds") List<Long> policyIds);
 }

@@ -1,5 +1,6 @@
 package com.mozip.server.recommendation.service;
 
+import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
 import com.mozip.server.policy.dto.PolicySearchRequest;
@@ -19,6 +20,7 @@ import com.mozip.server.user.exception.UserProfileNotFoundException;
 import com.mozip.server.user.repository.UserProfileRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
@@ -35,18 +37,21 @@ public class PolicyRecommendationService {
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
     private final PolicyRegionRepository policyRegionRepository;
+    private final BookmarkRepository bookmarkRepository;
     private final PolicyEligibilityEvaluator policyEligibilityEvaluator;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
 
     public PolicyRecommendationService(UserProfileRepository userProfileRepository, PolicyRepository policyRepository,
                                         PolicyEligibilityRepository policyEligibilityRepository,
                                         PolicyRegionRepository policyRegionRepository,
+                                        BookmarkRepository bookmarkRepository,
                                         PolicyEligibilityEvaluator policyEligibilityEvaluator,
                                         PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
         this.userProfileRepository = userProfileRepository;
         this.policyRepository = policyRepository;
         this.policyEligibilityRepository = policyEligibilityRepository;
         this.policyRegionRepository = policyRegionRepository;
+        this.bookmarkRepository = bookmarkRepository;
         this.policyEligibilityEvaluator = policyEligibilityEvaluator;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
     }
@@ -81,15 +86,20 @@ public class PolicyRecommendationService {
                         .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId(),
                                 Collectors.mapping(policyRegion -> policyRegion.getRegion().getId(), Collectors.toList())));
 
+        Set<Long> bookmarkedPolicyIds = policyIds.isEmpty()
+                ? Set.of()
+                : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, policyIds));
+
         Page<PolicyRecommendationResponse> responses = policies.map(policy -> {
             PolicyEligibility eligibility = eligibilityByPolicyId.get(policy.getId());
             List<Long> regionIds = regionIdsByPolicyId.getOrDefault(policy.getId(), List.of());
+            boolean bookmarked = bookmarkedPolicyIds.contains(policy.getId());
 
             PolicyEligibilityResult eligibilityResult =
                     policyEligibilityEvaluator.evaluate(userProfile, policy, regionIds, eligibility);
             PolicyAvailabilityResult availabilityResult = policyAvailabilityEvaluator.evaluate(policy);
 
-            return PolicyRecommendationResponse.from(policy, eligibilityResult, availabilityResult);
+            return PolicyRecommendationResponse.from(policy, eligibilityResult, availabilityResult, bookmarked);
         });
 
         return PageResponse.from(responses);
