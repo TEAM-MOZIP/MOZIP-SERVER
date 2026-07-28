@@ -3,6 +3,7 @@ package com.mozip.server.recommendation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -36,7 +37,9 @@ import com.mozip.server.user.repository.UserProfileRepository;
 import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
@@ -106,6 +109,72 @@ class PolicyRecommendationServiceTest {
                 .isEqualTo(EligibilityStatus.ELIGIBLE);
         assertThat(findByPolicyId(response, mismatchingRegionalPolicy.getId()).eligibility().status())
                 .isEqualTo(EligibilityStatus.INELIGIBLE);
+    }
+
+    @Test
+    void ELIGIBLE_NEEDS_REVIEW_INELIGIBLE_순서로_정렬된다() {
+        User user = createUser("order@example.com", "order-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+
+        Policy ineligiblePolicy = createPolicy(KEYWORD + "-정렬-부적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
+        Policy needsReviewPolicy = createPolicy(KEYWORD + "-정렬-보류", RegionScope.NATIONAL);
+        Policy eligiblePolicy = createPolicy(KEYWORD + "-정렬-적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-정렬", null, null, null), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
+                .containsExactly(eligiblePolicy.getId(), needsReviewPolicy.getId(), ineligiblePolicy.getId());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 필터_결과가_페이지_크기보다_많아도_전체_추천순으로_정렬된_뒤_페이지가_슬라이싱된다() {
+        User user = createUser("page-order@example.com", "page-order-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+
+        // id가 가장 낮은(=가장 먼저 생성된) 정책이 오히려 가장 낮은 우선순위(INELIGIBLE)를 갖도록 구성한다.
+        // 정렬 없이 페이지네이션만 했다면 이 정책이 1페이지(size=1)에 노출되어야 하지만,
+        // 전체 추천순 정렬이 적용되면 가장 마지막에 생성된 ELIGIBLE 정책이 1페이지에 노출되어야 한다.
+        Policy ineligiblePolicy = createPolicy(KEYWORD + "-경계-부적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
+        Policy needsReviewPolicy = createPolicy(KEYWORD + "-경계-보류", RegionScope.NATIONAL);
+        Policy eligiblePolicy = createPolicy(KEYWORD + "-경계-적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-경계", null, null, null), PageRequest.of(0, 1));
+
+        assertThat(response.totalElements()).isEqualTo(3);
+        assertThat(response.totalPages()).isEqualTo(3);
+        assertThat(response.content()).hasSize(1);
+        assertThat(response.content().get(0).policyId()).isEqualTo(eligiblePolicy.getId());
+        assertThat(response.content().get(0).eligibility().status()).isEqualTo(EligibilityStatus.ELIGIBLE);
+
+        // 북마크는 전체 후보(3건)가 아니라 슬라이싱된 현재 페이지(1건)에 대해서만 조회되어야 한다.
+        ArgumentCaptor<List<Long>> policyIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(bookmarkRepository).findBookmarkedPolicyIds(eq(user.getId()), policyIdsCaptor.capture());
+        assertThat(policyIdsCaptor.getValue()).containsExactly(eligiblePolicy.getId());
+        assertThat(policyIdsCaptor.getValue()).doesNotContain(needsReviewPolicy.getId(), ineligiblePolicy.getId());
+    }
+
+    @Test
+    void 필터_결과_수가_페이지_크기로_정확히_나누어떨어지면_불필요한_빈_페이지가_생기지_않는다() {
+        User user = createUser("exact-boundary@example.com", "exact-boundary-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        createPolicy(KEYWORD + "-정확한경계1", RegionScope.NATIONAL);
+        createPolicy(KEYWORD + "-정확한경계2", RegionScope.NATIONAL);
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-정확한경계", null, null, null), PageRequest.of(0, 2));
+
+        assertThat(response.totalElements()).isEqualTo(2);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.content()).hasSize(2);
+        assertThat(response.first()).isTrue();
+        assertThat(response.last()).isTrue();
     }
 
     @Test
