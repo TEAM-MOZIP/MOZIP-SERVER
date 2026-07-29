@@ -40,6 +40,20 @@ public class PolicyController {
         return policyService.searchPolicies(condition, pageable);
     }
 
+    @Operation(summary = "공개 추천 정책 목록 조회",
+            description = "비로그인 사용자를 위한 공개 추천 목록을 조회한다. 개인화 적격성 판정 없이, "
+                    + "신청 가능 여부(신청 가능 → 확인 필요 → 신청 불가)와 신청 마감일 기준으로 고정 정렬된다.")
+    @GetMapping("/recommended")
+    public PageResponse<PolicySummaryResponse> getRecommendedPolicies(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) Long regionId,
+            @RequestParam(required = false) PolicyStatus status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status);
+        return policyService.getRecommendedPolicies(condition, pageable);
+    }
+
     @Operation(summary = "정책 상세 조회", description = "정책 ID로 상세 정보를 조회한다.")
     @GetMapping("/{id}")
     public PolicyDetailResponse getPolicyDetail(@PathVariable Long id) {
