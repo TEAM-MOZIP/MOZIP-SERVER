@@ -65,6 +65,26 @@ class PolicyControllerTest {
     }
 
     @Test
+    void 공개_추천_목록은_인증_없이도_조회에_성공한다() throws Exception {
+        PolicySummaryResponse summary = new PolicySummaryResponse(
+                1L, "국민내일배움카드", "훈련비 지원", "고용노동부",
+                ApplicationType.ALWAYS, null, null,
+                RegionScope.NATIONAL, PolicyStatus.ALWAYS_OPEN,
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.ALWAYS_OPEN)
+        );
+        PageResponse<PolicySummaryResponse> page =
+                new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
+        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/policies/recommended"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("국민내일배움카드"))
+                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"));
+    }
+
+    @Test
     void 정책_상세_조회에_성공한다() throws Exception {
         PolicyDetailResponse detail = new PolicyDetailResponse(
                 1L, "청년 월세 지원", "월세 지원 사업", "상세 설명", "지원 대상", "지원 내용", "온라인 신청",
