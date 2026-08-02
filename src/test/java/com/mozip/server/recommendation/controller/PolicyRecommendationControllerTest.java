@@ -2,6 +2,7 @@ package com.mozip.server.recommendation.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,7 +69,7 @@ class PolicyRecommendationControllerTest {
                 true
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true);
-        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/recommendations/policies")
@@ -107,7 +108,7 @@ class PolicyRecommendationControllerTest {
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(
                 List.of(bookmarkedItem, notBookmarkedItem), 0, 20, 2, 1, true, true);
-        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/recommendations/policies")
@@ -123,7 +124,7 @@ class PolicyRecommendationControllerTest {
     void 검색_파라미터와_Pageable이_Service에_전달된다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(), 0, 5, 0, 0, true, true);
-        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/recommendations/policies")
@@ -138,7 +139,7 @@ class PolicyRecommendationControllerTest {
 
         ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(policyRecommendationService).getRecommendations(eq(1L), conditionCaptor.capture(), pageableCaptor.capture());
+        verify(policyRecommendationService).getRecommendations(eq(1L), conditionCaptor.capture(), eq(false), pageableCaptor.capture());
 
         PolicySearchRequest capturedCondition = conditionCaptor.getValue();
         assertThat(capturedCondition.keyword()).isEqualTo("청년");
@@ -147,5 +148,20 @@ class PolicyRecommendationControllerTest {
         assertThat(capturedCondition.status()).isEqualTo(PolicyStatus.OPEN);
         assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(1);
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(5);
+    }
+
+    @Test
+    void onlyEligible_파라미터가_true면_Service에_그대로_전달된다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/recommendations/policies")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .param("onlyEligible", "true"))
+                .andExpect(status().isOk());
+
+        verify(policyRecommendationService).getRecommendations(eq(1L), any(PolicySearchRequest.class), eq(true), any(Pageable.class));
     }
 }
