@@ -50,7 +50,8 @@ class PolicyControllerTest {
                 1L, "청년 월세 지원", "월세 지원 사업", "서울특별시",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
                 RegionScope.REGIONAL, PolicyStatus.OPEN,
-                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD)
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
+                        true)
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
@@ -61,7 +62,8 @@ class PolicyControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("청년 월세 지원"))
-                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"));
+                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.content[0].availability.closingSoon").value(true));
     }
 
     @Test
@@ -70,7 +72,7 @@ class PolicyControllerTest {
                 1L, "국민내일배움카드", "훈련비 지원", "고용노동부",
                 ApplicationType.ALWAYS, null, null,
                 RegionScope.NATIONAL, PolicyStatus.ALWAYS_OPEN,
-                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.ALWAYS_OPEN)
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.ALWAYS_OPEN, false)
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
@@ -90,7 +92,8 @@ class PolicyControllerTest {
                 1L, "청년 월세 지원", "월세 지원 사업", "상세 설명", "지원 대상", "지원 내용", "온라인 신청",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
                 RegionScope.REGIONAL, PolicyStatus.OPEN, "https://example.com", "서울특별시", null,
-                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD)
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
+                        false)
         );
         when(policyService.getPolicyDetail(1L)).thenReturn(detail);
 

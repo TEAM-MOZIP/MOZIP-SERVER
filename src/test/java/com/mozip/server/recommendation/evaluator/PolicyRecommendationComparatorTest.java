@@ -109,7 +109,8 @@ class PolicyRecommendationComparatorTest {
 
         PolicyEligibilityResult eligibilityResult = new PolicyEligibilityResult(status, "테스트 사유", List.of());
         PolicyAvailabilityResult availabilityResult =
-                new PolicyAvailabilityResult(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD);
+                new PolicyAvailabilityResult(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
+                        false);
 
         return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult);
     }
