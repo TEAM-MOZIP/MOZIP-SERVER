@@ -8,6 +8,8 @@ import com.mozip.server.bookmark.dto.BookmarkResponse;
 import com.mozip.server.bookmark.exception.BookmarkAlreadyExistsException;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.PolicyAvailability;
+import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
@@ -57,6 +59,9 @@ class BookmarkServiceTest {
         assertThat(response.title()).isEqualTo("북마크테스트-등록");
         assertThat(response.organizationName()).isEqualTo("테스트기관");
         assertThat(response.bookmarkedAt()).isNotNull();
+        assertThat(response.availability().status()).isEqualTo(PolicyAvailability.AVAILABLE);
+        assertThat(response.availability().reason()).isEqualTo(PolicyAvailabilityReason.ALWAYS_OPEN);
+        assertThat(response.availability().closingSoon()).isFalse();
     }
 
     @Test
@@ -90,6 +95,8 @@ class BookmarkServiceTest {
         assertThat(item.policyId()).isEqualTo(policy.getId());
         assertThat(item.title()).isEqualTo("북마크테스트-목록");
         assertThat(item.organizationName()).isEqualTo("테스트기관");
+        assertThat(item.availability().status()).isEqualTo(PolicyAvailability.AVAILABLE);
+        assertThat(item.availability().closingSoon()).isFalse();
     }
 
     @Test
