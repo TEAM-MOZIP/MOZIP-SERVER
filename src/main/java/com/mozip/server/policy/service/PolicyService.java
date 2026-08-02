@@ -42,7 +42,8 @@ public class PolicyService {
                 PolicySpecifications.keywordContains(condition.keyword()),
                 PolicySpecifications.hasCategory(condition.categoryId()),
                 PolicySpecifications.availableInRegion(condition.regionId()),
-                PolicySpecifications.hasStatus(condition.status())
+                PolicySpecifications.hasStatus(condition.status()),
+                PolicySpecifications.hasAgeGroup(condition.ageGroup())
         );
 
         Page<Policy> policies = policyRepository.findAll(spec, pageable);
