@@ -12,6 +12,7 @@ import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRegionRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.repository.PolicySpecifications;
+import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
 import com.mozip.server.recommendation.domain.PolicyRecommendationCandidate;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
@@ -59,7 +60,7 @@ public class PolicyRecommendationService {
     }
 
     public PageResponse<PolicyRecommendationResponse> getRecommendations(Long userId, PolicySearchRequest condition,
-                                                                          Pageable pageable) {
+                                                                          boolean onlyEligible, Pageable pageable) {
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new UserProfileNotFoundException(userId));
 
@@ -100,7 +101,13 @@ public class PolicyRecommendationService {
                 .sorted(PolicyRecommendationComparator.comparator())
                 .toList();
 
-        return toPageResponse(candidates, userId, pageable);
+        List<PolicyRecommendationCandidate> filteredCandidates = onlyEligible
+                ? candidates.stream()
+                        .filter(candidate -> candidate.eligibilityResult().overallStatus() == EligibilityStatus.ELIGIBLE)
+                        .toList()
+                : candidates;
+
+        return toPageResponse(filteredCandidates, userId, pageable);
     }
 
     private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,
