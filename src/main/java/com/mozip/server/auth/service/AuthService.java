@@ -25,6 +25,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -59,14 +60,15 @@ public class AuthService {
         String providerUserId = String.valueOf(kakaoUserInfo.id());
         String email = kakaoUserInfo.kakaoAccount() != null ? kakaoUserInfo.kakaoAccount().email() : null;
 
-        User user = userRepository.findByProviderAndProviderUserId(OAuthProvider.KAKAO, providerUserId)
-                .orElseGet(() -> userRepository.save(User.builder()
-                        .email(email)
-                        .provider(OAuthProvider.KAKAO)
-                        .providerUserId(providerUserId)
-                        .build()));
+        Optional<User> existingUser = userRepository.findByProviderAndProviderUserId(OAuthProvider.KAKAO, providerUserId);
+        boolean isNewUser = existingUser.isEmpty();
+        User user = existingUser.orElseGet(() -> userRepository.save(User.builder()
+                .email(email)
+                .provider(OAuthProvider.KAKAO)
+                .providerUserId(providerUserId)
+                .build()));
 
-        return issueTokens(user);
+        return issueTokens(user, isNewUser);
     }
 
     public TokenResponse refresh(RefreshTokenRequest request) {
@@ -82,7 +84,7 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(InvalidRefreshTokenException::new);
 
-        return issueTokens(user);
+        return issueTokens(user, false);
     }
 
     public void logout(Long userId, RefreshTokenRequest request) {
@@ -122,7 +124,7 @@ public class AuthService {
         }
     }
 
-    private TokenResponse issueTokens(User user) {
+    private TokenResponse issueTokens(User user, boolean isNewUser) {
         String subject = user.getId().toString();
         String accessToken = jwtTokenProvider.createAccessToken(subject);
         String refreshToken = jwtTokenProvider.createRefreshToken(subject);
@@ -133,7 +135,7 @@ public class AuthService {
                 .expiresAt(LocalDateTime.now().plusSeconds(jwtProperties.refreshTokenExpireSeconds()))
                 .build());
 
-        return new TokenResponse(accessToken, refreshToken, jwtProperties.accessTokenExpireSeconds());
+        return new TokenResponse(accessToken, refreshToken, jwtProperties.accessTokenExpireSeconds(), isNewUser);
     }
 
     private String hashToken(String token) {
