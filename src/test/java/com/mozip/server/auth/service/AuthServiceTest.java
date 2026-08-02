@@ -48,25 +48,28 @@ class AuthServiceTest {
     private KakaoOAuthClient kakaoOAuthClient;
 
     @Test
-    void 처음_로그인하는_카카오_사용자는_새로_생성된다() {
+    void 처음_로그인하는_카카오_사용자는_새로_생성되고_isNewUser가_true다() {
         given카카오_로그인_응답("auth-code", "kakao-access-token", 11111L, "new@kakao.com");
 
         TokenResponse response = authService.loginWithKakao(new KakaoLoginRequest("auth-code"));
 
         assertThat(response.accessToken()).isNotBlank();
         assertThat(response.refreshToken()).isNotBlank();
+        assertThat(response.isNewUser()).isTrue();
         assertThat(userRepository.findByProviderAndProviderUserId(OAuthProvider.KAKAO, "11111")).isPresent();
     }
 
     @Test
-    void 이미_가입된_카카오_사용자는_재사용된다() {
+    void 이미_가입된_카카오_사용자는_재사용되고_isNewUser가_false다() {
         given카카오_로그인_응답("auth-code", "kakao-access-token", 22222L, "existing@kakao.com");
 
-        authService.loginWithKakao(new KakaoLoginRequest("auth-code"));
-        authService.loginWithKakao(new KakaoLoginRequest("auth-code"));
+        TokenResponse firstLogin = authService.loginWithKakao(new KakaoLoginRequest("auth-code"));
+        TokenResponse secondLogin = authService.loginWithKakao(new KakaoLoginRequest("auth-code"));
 
         long count = userRepository.findByProviderAndProviderUserId(OAuthProvider.KAKAO, "22222").stream().count();
         assertThat(count).isEqualTo(1);
+        assertThat(firstLogin.isNewUser()).isTrue();
+        assertThat(secondLogin.isNewUser()).isFalse();
     }
 
     @Test
@@ -77,6 +80,7 @@ class AuthServiceTest {
         TokenResponse secondTokens = authService.refresh(new RefreshTokenRequest(firstTokens.refreshToken()));
 
         assertThat(secondTokens.refreshToken()).isNotEqualTo(firstTokens.refreshToken());
+        assertThat(secondTokens.isNewUser()).isFalse();
         assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(firstTokens.refreshToken())))
                 .isInstanceOf(InvalidRefreshTokenException.class);
     }

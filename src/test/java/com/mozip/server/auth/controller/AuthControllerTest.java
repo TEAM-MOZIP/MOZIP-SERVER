@@ -46,25 +46,27 @@ class AuthControllerTest {
     private AuthService authService;
 
     @Test
-    void 카카오_로그인은_토큰_없이_호출_가능하다() throws Exception {
-        when(authService.loginWithKakao(any())).thenReturn(new TokenResponse("access", "refresh", 1800));
+    void 카카오_로그인은_토큰_없이_호출_가능하고_isNewUser를_포함한다() throws Exception {
+        when(authService.loginWithKakao(any())).thenReturn(new TokenResponse("access", "refresh", 1800, true));
 
         mockMvc.perform(post("/api/auth/kakao/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new KakaoLoginRequest("auth-code"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").value("access"));
+                .andExpect(jsonPath("$.accessToken").value("access"))
+                .andExpect(jsonPath("$.isNewUser").value(true));
     }
 
     @Test
     void 토큰_재발급은_토큰_없이_호출_가능하다() throws Exception {
-        when(authService.refresh(any())).thenReturn(new TokenResponse("new-access", "new-refresh", 1800));
+        when(authService.refresh(any())).thenReturn(new TokenResponse("new-access", "new-refresh", 1800, false));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new RefreshTokenRequest("refresh-token"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").value("new-access"));
+                .andExpect(jsonPath("$.accessToken").value("new-access"))
+                .andExpect(jsonPath("$.isNewUser").value(false));
     }
 
     @Test
