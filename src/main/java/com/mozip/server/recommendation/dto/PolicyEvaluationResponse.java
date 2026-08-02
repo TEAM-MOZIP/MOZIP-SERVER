@@ -36,11 +36,12 @@ public record PolicyEvaluationResponse(
 
     public record AvailabilityResponse(
             PolicyAvailability status,
-            PolicyAvailabilityReason reason
+            PolicyAvailabilityReason reason,
+            boolean closingSoon
     ) {
 
         public static AvailabilityResponse from(PolicyAvailabilityResult result) {
-            return new AvailabilityResponse(result.status(), result.reason());
+            return new AvailabilityResponse(result.status(), result.reason(), result.closingSoon());
         }
     }
 }
