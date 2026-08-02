@@ -178,6 +178,22 @@ class PolicyRecommendationServiceTest {
     }
 
     @Test
+    void 오프셋_계산이_오버플로되는_page_요청에서도_예외_없이_빈_목록을_반환한다() {
+        User user = createUser("offset-overflow@example.com", "offset-overflow-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        createPolicy(KEYWORD + "-오버플로", RegionScope.NATIONAL);
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-오버플로", null, null, null),
+                PageRequest.of(21474837, 100));
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isEqualTo(1);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.last()).isTrue();
+    }
+
+    @Test
     void 자격_조건이_없는_정책은_NEEDS_REVIEW로_응답된다() {
         User user = createUser("no-eligibility@example.com", "no-eligibility-1");
         createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
