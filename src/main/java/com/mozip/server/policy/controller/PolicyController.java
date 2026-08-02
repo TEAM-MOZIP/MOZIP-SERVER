@@ -1,10 +1,12 @@
 package com.mozip.server.policy.controller;
 
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
 import com.mozip.server.policy.entity.PolicyStatus;
+import com.mozip.server.policy.repository.PolicySortValidator;
 import com.mozip.server.policy.service.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,16 +30,21 @@ public class PolicyController {
         this.policyService = policyService;
     }
 
-    @Operation(summary = "정책 목록 조회", description = "키워드, 카테고리, 지역, 상태 조건으로 정책을 검색하고 페이지 단위로 조회한다.")
+    @Operation(summary = "정책 목록 조회",
+            description = "키워드, 카테고리, 지역, 상태, 연령 구간 조건으로 정책을 검색하고 페이지 단위로 조회한다. "
+                    + "sort는 createdAt, applicationEndDate만 허용하며 그 외 필드를 요청하면 400을 반환한다. "
+                    + "정렬 뒤에는 결정성을 위한 id DESC가 자동으로 추가된다.")
     @GetMapping
     public PageResponse<PolicySummaryResponse> searchPolicies(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
-            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable) {
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status);
-        return policyService.searchPolicies(condition, pageable);
+            @RequestParam(required = false) AgeGroup ageGroup,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        Pageable validatedPageable = PolicySortValidator.validate(pageable);
+        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, ageGroup);
+        return policyService.searchPolicies(condition, validatedPageable);
     }
 
     @Operation(summary = "공개 추천 정책 목록 조회",
@@ -50,7 +57,7 @@ public class PolicyController {
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status);
+        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, null);
         return policyService.getRecommendedPolicies(condition, pageable);
     }
 

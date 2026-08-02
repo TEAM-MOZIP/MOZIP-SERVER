@@ -37,7 +37,7 @@ public class PolicyRecommendationController {
             @RequestParam(required = false) PolicyStatus status,
             @RequestParam(required = false, defaultValue = "false") boolean onlyEligible,
             @PageableDefault(size = 20) Pageable pageable) {
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status);
+        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, null);
         return policyRecommendationService.getRecommendations(Long.valueOf(userId), condition, onlyEligible, pageable);
     }
 }
