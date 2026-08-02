@@ -18,6 +18,9 @@ import com.mozip.server.bookmark.dto.BookmarkResponse;
 import com.mozip.server.bookmark.exception.BookmarkAlreadyExistsException;
 import com.mozip.server.bookmark.service.BookmarkService;
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.PolicyAvailability;
+import com.mozip.server.policy.domain.PolicyAvailabilityReason;
+import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -61,7 +64,9 @@ class BookmarkControllerTest {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         BookmarkResponse response = new BookmarkResponse(
                 10L, 1L, "청년내일채움공제", "고용노동부",
-                LocalDate.now(), LocalDate.now().plusMonths(3), LocalDateTime.now());
+                LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false),
+                LocalDateTime.now());
         when(bookmarkService.addBookmark(eq(1L), eq(1L))).thenReturn(response);
 
         mockMvc.perform(post("/api/bookmarks")
@@ -71,7 +76,9 @@ class BookmarkControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.bookmarkId").value(10))
                 .andExpect(jsonPath("$.policyId").value(1))
-                .andExpect(jsonPath("$.title").value("청년내일채움공제"));
+                .andExpect(jsonPath("$.title").value("청년내일채움공제"))
+                .andExpect(jsonPath("$.availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.availability.closingSoon").value(false));
     }
 
     @Test
@@ -119,7 +126,9 @@ class BookmarkControllerTest {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         BookmarkResponse item = new BookmarkResponse(
                 10L, 1L, "청년내일채움공제", "고용노동부",
-                LocalDate.now(), LocalDate.now().plusMonths(3), LocalDateTime.now());
+                LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
+                LocalDateTime.now());
         PageResponse<BookmarkResponse> page = new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true);
         when(bookmarkService.getMyBookmarks(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(page);
 
@@ -127,7 +136,9 @@ class BookmarkControllerTest {
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].policyId").value(1));
+                .andExpect(jsonPath("$.content[0].policyId").value(1))
+                .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.content[0].availability.closingSoon").value(true));
     }
 
     @Test

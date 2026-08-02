@@ -6,6 +6,7 @@ import com.mozip.server.bookmark.exception.BookmarkAlreadyExistsException;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.user.entity.User;
@@ -24,12 +25,14 @@ public class BookmarkService {
     private final BookmarkRepository bookmarkRepository;
     private final UserRepository userRepository;
     private final PolicyRepository policyRepository;
+    private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
 
     public BookmarkService(BookmarkRepository bookmarkRepository, UserRepository userRepository,
-                            PolicyRepository policyRepository) {
+                            PolicyRepository policyRepository, PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
         this.bookmarkRepository = bookmarkRepository;
         this.userRepository = userRepository;
         this.policyRepository = policyRepository;
+        this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
     }
 
     @Transactional
@@ -41,7 +44,7 @@ public class BookmarkService {
 
         try {
             Bookmark saved = bookmarkRepository.save(Bookmark.builder().user(user).policy(policy).build());
-            return BookmarkResponse.from(saved);
+            return BookmarkResponse.from(saved, policyAvailabilityEvaluator.evaluate(policy));
         } catch (DataIntegrityViolationException e) {
             throw new BookmarkAlreadyExistsException(userId, policyId);
         }
@@ -49,7 +52,8 @@ public class BookmarkService {
 
     public PageResponse<BookmarkResponse> getMyBookmarks(Long userId, Pageable pageable) {
         Page<Bookmark> bookmarks = bookmarkRepository.findByUserId(userId, pageable);
-        return PageResponse.from(bookmarks.map(BookmarkResponse::from));
+        return PageResponse.from(bookmarks.map(
+                bookmark -> BookmarkResponse.from(bookmark, policyAvailabilityEvaluator.evaluate(bookmark.getPolicy()))));
     }
 
     @Transactional
