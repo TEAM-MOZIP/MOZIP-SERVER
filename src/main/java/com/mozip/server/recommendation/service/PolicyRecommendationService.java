@@ -108,11 +108,11 @@ public class PolicyRecommendationService {
         int totalElements = candidates.size();
         int size = pageable.getPageSize();
         int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
-        int offset = (int) pageable.getOffset();
+        long offset = pageable.getOffset();
 
         List<PolicyRecommendationCandidate> pageContent = offset >= totalElements
                 ? List.of()
-                : candidates.subList(offset, Math.min(offset + size, totalElements));
+                : candidates.subList((int) offset, (int) Math.min(offset + size, totalElements));
 
         List<Long> pagePolicyIds = pageContent.stream().map(candidate -> candidate.policy().getId()).toList();
         Set<Long> bookmarkedPolicyIds = pagePolicyIds.isEmpty()
