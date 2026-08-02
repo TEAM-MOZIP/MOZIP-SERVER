@@ -106,7 +106,7 @@ class PolicyAvailabilityComparatorTest {
         ReflectionTestUtils.setField(policy, "createdAt", createdAt);
 
         PolicyAvailabilityResult availabilityResult =
-                new PolicyAvailabilityResult(status, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD);
+                new PolicyAvailabilityResult(status, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false);
 
         return new PolicyAvailabilityCandidate(policy, availabilityResult);
     }

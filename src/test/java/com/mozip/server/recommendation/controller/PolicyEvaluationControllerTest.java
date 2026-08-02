@@ -84,7 +84,7 @@ class PolicyEvaluationControllerTest {
                         List.of(new ConditionResult(ConditionType.AGE, ConditionStatus.MATCHED, "연령 조건을 충족합니다."))
                 ),
                 new PolicyEvaluationResponse.AvailabilityResponse(
-                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true
                 )
         );
         when(policyEvaluationService.evaluate(eq(1L), eq(1L))).thenReturn(response);
@@ -96,6 +96,7 @@ class PolicyEvaluationControllerTest {
                 .andExpect(jsonPath("$.eligibility.status").value("ELIGIBLE"))
                 .andExpect(jsonPath("$.eligibility.conditionResults[0].type").value("AGE"))
                 .andExpect(jsonPath("$.availability.status").value("AVAILABLE"))
-                .andExpect(jsonPath("$.availability.reason").value("WITHIN_APPLICATION_PERIOD"));
+                .andExpect(jsonPath("$.availability.reason").value("WITHIN_APPLICATION_PERIOD"))
+                .andExpect(jsonPath("$.availability.closingSoon").value(true));
     }
 }

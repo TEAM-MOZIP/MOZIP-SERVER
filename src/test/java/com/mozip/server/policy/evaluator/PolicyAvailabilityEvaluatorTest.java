@@ -182,6 +182,63 @@ class PolicyAvailabilityEvaluatorTest {
         assertThat(result.status()).isEqualTo(PolicyAvailability.UNAVAILABLE);
         assertThat(result.reason()).isEqualTo(PolicyAvailabilityReason.AFTER_APPLICATION_PERIOD);
         assertThat(result.reason()).isNotEqualTo(PolicyAvailabilityReason.CLOSED);
+        assertThat(result.closingSoon()).isFalse();
+    }
+
+    @Test
+    void 마감일까지_정확히_3일_남았으면_closingSoon이_true다() {
+        // 평가 기준일 2026-06-15 기준 마감일 2026-06-18 = D-3
+        Policy policy = policy(PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 18));
+
+        PolicyAvailabilityResult result = evaluator.evaluate(policy);
+
+        assertThat(result.status()).isEqualTo(PolicyAvailability.AVAILABLE);
+        assertThat(result.closingSoon()).isTrue();
+    }
+
+    @Test
+    void 마감일까지_4일_이상_남았으면_closingSoon이_false다() {
+        // 평가 기준일 2026-06-15 기준 마감일 2026-06-19 = D-4
+        Policy policy = policy(PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 19));
+
+        PolicyAvailabilityResult result = evaluator.evaluate(policy);
+
+        assertThat(result.status()).isEqualTo(PolicyAvailability.AVAILABLE);
+        assertThat(result.closingSoon()).isFalse();
+    }
+
+    @Test
+    void 마감일이_오늘이면_closingSoon이_true다() {
+        Policy policy = policy(PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 15));
+
+        PolicyAvailabilityResult result = evaluator.evaluate(policy);
+
+        assertThat(result.status()).isEqualTo(PolicyAvailability.AVAILABLE);
+        assertThat(result.closingSoon()).isTrue();
+    }
+
+    @Test
+    void 상시모집_정책은_마감일이_없어_closingSoon이_항상_false다() {
+        Policy alwaysOpen = policy(PolicyStatus.ALWAYS_OPEN, ApplicationType.PERIOD, null, null);
+        Policy alwaysType = policy(PolicyStatus.OPEN, ApplicationType.ALWAYS, null, null);
+
+        assertThat(evaluator.evaluate(alwaysOpen).closingSoon()).isFalse();
+        assertThat(evaluator.evaluate(alwaysType).closingSoon()).isFalse();
+    }
+
+    @Test
+    void AVAILABLE이_아닌_상태에서는_마감일이_임박해도_closingSoon이_false다() {
+        // 신청 시작 전(BEFORE_APPLICATION_PERIOD)이라 마감일이 가까워도 closingSoon을 적용하지 않는다.
+        Policy policy = policy(PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.of(2026, 6, 16), LocalDate.of(2026, 6, 17));
+
+        PolicyAvailabilityResult result = evaluator.evaluate(policy);
+
+        assertThat(result.status()).isEqualTo(PolicyAvailability.UNAVAILABLE);
+        assertThat(result.closingSoon()).isFalse();
     }
 
     private Policy policy(PolicyStatus status, ApplicationType applicationType,

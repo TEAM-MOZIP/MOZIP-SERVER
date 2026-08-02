@@ -64,7 +64,7 @@ class PolicyRecommendationControllerTest {
                 new PolicyEvaluationResponse.EligibilityResponse(
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
-                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
                 true
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true);
@@ -80,6 +80,7 @@ class PolicyRecommendationControllerTest {
                 .andExpect(jsonPath("$.content[0].organizationName").value("고용노동부"))
                 .andExpect(jsonPath("$.content[0].eligibility.status").value("ELIGIBLE"))
                 .andExpect(jsonPath("$.content[0].availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.content[0].availability.closingSoon").value(true))
                 .andExpect(jsonPath("$.content[0].bookmarked").value(true));
     }
 
@@ -92,7 +93,7 @@ class PolicyRecommendationControllerTest {
                 new PolicyEvaluationResponse.EligibilityResponse(
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
-                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false),
                 true
         );
         PolicyRecommendationResponse notBookmarkedItem = new PolicyRecommendationResponse(
@@ -101,7 +102,7 @@ class PolicyRecommendationControllerTest {
                 new PolicyEvaluationResponse.EligibilityResponse(
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
-                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD),
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false),
                 false
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(

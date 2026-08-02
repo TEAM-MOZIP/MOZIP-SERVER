@@ -6,10 +6,11 @@ import com.mozip.server.policy.domain.PolicyAvailabilityResult;
 
 public record PolicyAvailabilityResponse(
         PolicyAvailability status,
-        PolicyAvailabilityReason reason
+        PolicyAvailabilityReason reason,
+        boolean closingSoon
 ) {
 
     public static PolicyAvailabilityResponse from(PolicyAvailabilityResult result) {
-        return new PolicyAvailabilityResponse(result.status(), result.reason());
+        return new PolicyAvailabilityResponse(result.status(), result.reason(), result.closingSoon());
     }
 }
