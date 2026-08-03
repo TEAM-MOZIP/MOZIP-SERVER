@@ -13,16 +13,20 @@ import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.ApplicationType;
+import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
+import com.mozip.server.policy.repository.CategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRegionRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
+import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.region.entity.Region;
 import com.mozip.server.region.repository.RegionRepository;
@@ -74,6 +78,9 @@ class PolicyRecommendationServiceTest {
 
     @Autowired
     private PolicyRegionRepository policyRegionRepository;
+
+    @Autowired
+    private CategoryRepository categoryRepository;
 
     @MockitoSpyBean
     private BookmarkRepository bookmarkRepository;
@@ -376,6 +383,145 @@ class PolicyRecommendationServiceTest {
         assertThatThrownBy(() -> policyRecommendationService.getRecommendations(
                 user.getId(), new PolicySearchRequest(null, null, null, null, null), false, PageRequest.of(0, 20)))
                 .isInstanceOf(UserProfileNotFoundException.class);
+    }
+
+    @Test
+    void 개인화_패키지는_INELIGIBLE_정책을_제외하고_ELIGIBLE_NEEDS_REVIEW만_포함한다() {
+        User user = createUser("package-status@example.com", "package-status-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category category = createCategory("PKG_REC_STATUS", KEYWORD + "-개인화상태카테고리");
+
+        Policy eligiblePolicy = createPolicy(KEYWORD + "-패키지상태-적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
+        linkCategory(eligiblePolicy, category);
+
+        Policy needsReviewPolicy = createPolicy(KEYWORD + "-패키지상태-보류", RegionScope.NATIONAL);
+        linkCategory(needsReviewPolicy, category);
+
+        Policy ineligiblePolicy = createPolicy(KEYWORD + "-패키지상태-부적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
+        linkCategory(ineligiblePolicy, category);
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        PolicyPackageResponse matched = findByCategoryId(packages, category.getId());
+        assertThat(matched.policies()).extracting(PolicyRecommendationResponse::policyId)
+                .containsExactly(eligiblePolicy.getId(), needsReviewPolicy.getId());
+    }
+
+    @Test
+    void 개인화_패키지는_카테고리별로_그룹핑되어_반환된다() {
+        User user = createUser("package-group@example.com", "package-group-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category category = createCategory("PKG_REC_GROUP", KEYWORD + "-개인화그룹핑카테고리");
+        Policy policy = createPolicy(KEYWORD + "-패키지그룹핑", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).build());
+        linkCategory(policy, category);
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        PolicyPackageResponse matched = findByCategoryId(packages, category.getId());
+        assertThat(matched.categoryName()).isEqualTo(category.getName());
+        assertThat(matched.policies()).extracting(PolicyRecommendationResponse::policyId).containsExactly(policy.getId());
+    }
+
+    @Test
+    void 개인화_패키지는_그룹당_최대_5개까지만_포함한다() {
+        User user = createUser("package-max@example.com", "package-max-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category category = createCategory("PKG_REC_MAX", KEYWORD + "-개인화최대카테고리");
+        for (int i = 0; i < 6; i++) {
+            Policy policy = createPolicy(KEYWORD + "-패키지최대-" + i, RegionScope.NATIONAL);
+            policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).build());
+            linkCategory(policy, category);
+        }
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        PolicyPackageResponse matched = findByCategoryId(packages, category.getId());
+        assertThat(matched.policies()).hasSize(5);
+    }
+
+    @Test
+    void 카테고리가_없는_정책은_개인화_패키지에서_제외된다() {
+        User user = createUser("package-uncategorized@example.com", "package-uncategorized-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy uncategorized = createPolicy(KEYWORD + "-패키지미분류", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(uncategorized).build());
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        List<Long> exposedPolicyIds = packages.stream()
+                .flatMap(response -> response.policies().stream())
+                .map(PolicyRecommendationResponse::policyId)
+                .toList();
+        assertThat(exposedPolicyIds).doesNotContain(uncategorized.getId());
+    }
+
+    @Test
+    void 개인화_패키지의_북마크_여부가_정확히_반영된다() {
+        User user = createUser("package-bookmark@example.com", "package-bookmark-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category category = createCategory("PKG_REC_BOOKMARK", KEYWORD + "-개인화북마크카테고리");
+        Policy bookmarkedPolicy = createPolicy(KEYWORD + "-패키지북마크됨", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(bookmarkedPolicy).build());
+        linkCategory(bookmarkedPolicy, category);
+        Policy notBookmarkedPolicy = createPolicy(KEYWORD + "-패키지북마크안됨", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(notBookmarkedPolicy).build());
+        linkCategory(notBookmarkedPolicy, category);
+        bookmarkRepository.save(Bookmark.builder().user(user).policy(bookmarkedPolicy).build());
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        PolicyPackageResponse matched = findByCategoryId(packages, category.getId());
+        PolicyRecommendationResponse bookmarkedItem = matched.policies().stream()
+                .filter(item -> item.policyId().equals(bookmarkedPolicy.getId())).findFirst().orElseThrow();
+        PolicyRecommendationResponse notBookmarkedItem = matched.policies().stream()
+                .filter(item -> item.policyId().equals(notBookmarkedPolicy.getId())).findFirst().orElseThrow();
+        assertThat(bookmarkedItem.bookmarked()).isTrue();
+        assertThat(notBookmarkedItem.bookmarked()).isFalse();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 개인화_패키지는_여러_카테고리에_속한_정책의_북마크를_중복없이_한_번만_배치_조회한다() {
+        User user = createUser("package-dedup@example.com", "package-dedup-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category categoryA = createCategory("PKG_REC_DEDUP_A", KEYWORD + "-중복카테고리A");
+        Category categoryB = createCategory("PKG_REC_DEDUP_B", KEYWORD + "-중복카테고리B");
+        Policy policy = createPolicy(KEYWORD + "-패키지중복", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).build());
+        linkCategory(policy, categoryA);
+        linkCategory(policy, categoryB);
+
+        policyRecommendationService.getPackages(user.getId());
+
+        ArgumentCaptor<List<Long>> policyIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(bookmarkRepository, times(1)).findBookmarkedPolicyIds(eq(user.getId()), policyIdsCaptor.capture());
+        assertThat(policyIdsCaptor.getValue()).containsOnlyOnce(policy.getId());
+    }
+
+    @Test
+    void 개인화_패키지_조회_시_프로필이_없으면_예외가_발생한다() {
+        User user = createUser("package-no-profile@example.com", "package-no-profile-1");
+
+        assertThatThrownBy(() -> policyRecommendationService.getPackages(user.getId()))
+                .isInstanceOf(UserProfileNotFoundException.class);
+    }
+
+    private PolicyPackageResponse findByCategoryId(List<PolicyPackageResponse> packages, Long categoryId) {
+        return packages.stream()
+                .filter(response -> response.categoryId().equals(categoryId))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private Category createCategory(String code, String name) {
+        return categoryRepository.save(Category.builder().code(code).name(name).build());
+    }
+
+    private void linkCategory(Policy policy, Category category) {
+        entityManager.persist(PolicyCategory.builder().policy(policy).category(category).build());
     }
 
     private PolicyRecommendationResponse findByPolicyId(PageResponse<PolicyRecommendationResponse> response,

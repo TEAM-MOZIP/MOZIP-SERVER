@@ -3,11 +3,15 @@ package com.mozip.server.recommendation.service;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
+import com.mozip.server.policy.domain.PolicyPackageGrouper;
 import com.mozip.server.policy.dto.PolicySearchRequest;
+import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
+import com.mozip.server.policy.repository.PolicyCategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRegionRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
@@ -15,6 +19,7 @@ import com.mozip.server.policy.repository.PolicySpecifications;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
 import com.mozip.server.recommendation.domain.PolicyRecommendationCandidate;
+import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.evaluator.PolicyEligibilityEvaluator;
 import com.mozip.server.recommendation.evaluator.PolicyRecommendationComparator;
@@ -36,11 +41,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class PolicyRecommendationService {
 
+    private static final PolicySearchRequest EMPTY_CONDITION = new PolicySearchRequest(null, null, null, null, null);
+
     private final UserProfileRepository userProfileRepository;
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
     private final PolicyRegionRepository policyRegionRepository;
     private final BookmarkRepository bookmarkRepository;
+    private final PolicyCategoryRepository policyCategoryRepository;
     private final PolicyEligibilityEvaluator policyEligibilityEvaluator;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
 
@@ -48,6 +56,7 @@ public class PolicyRecommendationService {
                                         PolicyEligibilityRepository policyEligibilityRepository,
                                         PolicyRegionRepository policyRegionRepository,
                                         BookmarkRepository bookmarkRepository,
+                                        PolicyCategoryRepository policyCategoryRepository,
                                         PolicyEligibilityEvaluator policyEligibilityEvaluator,
                                         PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
         this.userProfileRepository = userProfileRepository;
@@ -55,6 +64,7 @@ public class PolicyRecommendationService {
         this.policyEligibilityRepository = policyEligibilityRepository;
         this.policyRegionRepository = policyRegionRepository;
         this.bookmarkRepository = bookmarkRepository;
+        this.policyCategoryRepository = policyCategoryRepository;
         this.policyEligibilityEvaluator = policyEligibilityEvaluator;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
     }
@@ -64,6 +74,50 @@ public class PolicyRecommendationService {
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new UserProfileNotFoundException(userId));
 
+        List<PolicyRecommendationCandidate> candidates = getSortedCandidates(userProfile, condition);
+
+        List<PolicyRecommendationCandidate> filteredCandidates = onlyEligible
+                ? candidates.stream()
+                        .filter(candidate -> candidate.eligibilityResult().overallStatus() == EligibilityStatus.ELIGIBLE)
+                        .toList()
+                : candidates;
+
+        return toPageResponse(filteredCandidates, userId, pageable);
+    }
+
+    public List<PolicyPackageResponse> getPackages(Long userId) {
+        UserProfile userProfile = userProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new UserProfileNotFoundException(userId));
+
+        List<PolicyRecommendationCandidate> candidates = getSortedCandidates(userProfile, EMPTY_CONDITION).stream()
+                .filter(candidate -> candidate.eligibilityResult().overallStatus() != EligibilityStatus.INELIGIBLE)
+                .toList();
+
+        List<Long> policyIds = candidates.stream().map(candidate -> candidate.policy().getId()).toList();
+        Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(policyIds);
+
+        Map<Category, List<PolicyRecommendationCandidate>> grouped =
+                PolicyPackageGrouper.group(candidates, PolicyRecommendationCandidate::policy, categoriesByPolicyId);
+
+        List<Long> exposedPolicyIds = grouped.values().stream()
+                .flatMap(List::stream)
+                .map(candidate -> candidate.policy().getId())
+                .distinct()
+                .toList();
+        Set<Long> bookmarkedPolicyIds = exposedPolicyIds.isEmpty()
+                ? Set.of()
+                : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, exposedPolicyIds));
+
+        return grouped.entrySet().stream()
+                .map(entry -> PolicyPackageResponse.from(entry.getKey(),
+                        entry.getValue().stream()
+                                .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
+                                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId())))
+                                .toList()))
+                .toList();
+    }
+
+    private List<PolicyRecommendationCandidate> getSortedCandidates(UserProfile userProfile, PolicySearchRequest condition) {
         Specification<Policy> spec = Specification.allOf(
                 PolicySpecifications.keywordContains(condition.keyword()),
                 PolicySpecifications.hasCategory(condition.categoryId()),
@@ -89,7 +143,7 @@ public class PolicyRecommendationService {
                         .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId(),
                                 Collectors.mapping(policyRegion -> policyRegion.getRegion().getId(), Collectors.toList())));
 
-        List<PolicyRecommendationCandidate> candidates = policies.stream()
+        return policies.stream()
                 .map(policy -> {
                     PolicyEligibility eligibility = eligibilityByPolicyId.get(policy.getId());
                     List<Long> regionIds = regionIdsByPolicyId.getOrDefault(policy.getId(), List.of());
@@ -100,14 +154,15 @@ public class PolicyRecommendationService {
                 })
                 .sorted(PolicyRecommendationComparator.comparator())
                 .toList();
+    }
 
-        List<PolicyRecommendationCandidate> filteredCandidates = onlyEligible
-                ? candidates.stream()
-                        .filter(candidate -> candidate.eligibilityResult().overallStatus() == EligibilityStatus.ELIGIBLE)
-                        .toList()
-                : candidates;
-
-        return toPageResponse(filteredCandidates, userId, pageable);
+    private Map<Long, List<Category>> groupCategoriesByPolicyId(List<Long> policyIds) {
+        if (policyIds.isEmpty()) {
+            return Map.of();
+        }
+        return policyCategoryRepository.findByPolicyIdIn(policyIds).stream()
+                .collect(Collectors.groupingBy(policyCategory -> policyCategory.getPolicy().getId(),
+                        Collectors.mapping(PolicyCategory::getCategory, Collectors.toList())));
     }
 
     private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,

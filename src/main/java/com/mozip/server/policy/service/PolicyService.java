@@ -4,18 +4,25 @@ import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityCandidate;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
+import com.mozip.server.policy.domain.PolicyPackageGrouper;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
+import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
+import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityComparator;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.repository.PolicyCategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.repository.PolicySpecifications;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -27,17 +34,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class PolicyService {
 
+    private static final PolicySearchRequest EMPTY_CONDITION = new PolicySearchRequest(null, null, null, null, null);
+
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
     private final BookmarkRepository bookmarkRepository;
+    private final PolicyCategoryRepository policyCategoryRepository;
 
     public PolicyService(PolicyRepository policyRepository, PolicyEligibilityRepository policyEligibilityRepository,
-                          PolicyAvailabilityEvaluator policyAvailabilityEvaluator, BookmarkRepository bookmarkRepository) {
+                          PolicyAvailabilityEvaluator policyAvailabilityEvaluator, BookmarkRepository bookmarkRepository,
+                          PolicyCategoryRepository policyCategoryRepository) {
         this.policyRepository = policyRepository;
         this.policyEligibilityRepository = policyEligibilityRepository;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
         this.bookmarkRepository = bookmarkRepository;
+        this.policyCategoryRepository = policyCategoryRepository;
     }
 
     public PageResponse<PolicySummaryResponse> searchPolicies(PolicySearchRequest condition, Pageable pageable) {
@@ -66,6 +78,26 @@ public class PolicyService {
     }
 
     public PageResponse<PolicySummaryResponse> getRecommendedPolicies(PolicySearchRequest condition, Pageable pageable) {
+        List<PolicyAvailabilityCandidate> candidates = getSortedAvailabilityCandidates(condition);
+        return toPageResponse(candidates, pageable);
+    }
+
+    public List<PublicPolicyPackageResponse> getPackages() {
+        List<PolicyAvailabilityCandidate> candidates = getSortedAvailabilityCandidates(EMPTY_CONDITION);
+
+        List<Long> policyIds = candidates.stream().map(candidate -> candidate.policy().getId()).toList();
+        Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(policyIds);
+
+        return PolicyPackageGrouper.group(candidates, PolicyAvailabilityCandidate::policy, categoriesByPolicyId)
+                .entrySet().stream()
+                .map(entry -> PublicPolicyPackageResponse.from(entry.getKey(),
+                        entry.getValue().stream()
+                                .map(candidate -> PolicySummaryResponse.from(candidate.policy(), candidate.availabilityResult()))
+                                .toList()))
+                .toList();
+    }
+
+    private List<PolicyAvailabilityCandidate> getSortedAvailabilityCandidates(PolicySearchRequest condition) {
         Specification<Policy> spec = Specification.allOf(
                 PolicySpecifications.keywordContains(condition.keyword()),
                 PolicySpecifications.hasCategory(condition.categoryId()),
@@ -74,12 +106,19 @@ public class PolicyService {
         );
         List<Policy> policies = policyRepository.findAll(spec, Sort.unsorted());
 
-        List<PolicyAvailabilityCandidate> candidates = policies.stream()
+        return policies.stream()
                 .map(policy -> new PolicyAvailabilityCandidate(policy, policyAvailabilityEvaluator.evaluate(policy)))
                 .sorted(PolicyAvailabilityComparator.comparator())
                 .toList();
+    }
 
-        return toPageResponse(candidates, pageable);
+    private Map<Long, List<Category>> groupCategoriesByPolicyId(List<Long> policyIds) {
+        if (policyIds.isEmpty()) {
+            return Map.of();
+        }
+        return policyCategoryRepository.findByPolicyIdIn(policyIds).stream()
+                .collect(Collectors.groupingBy(policyCategory -> policyCategory.getPolicy().getId(),
+                        Collectors.mapping(PolicyCategory::getCategory, Collectors.toList())));
     }
 
     private PageResponse<PolicySummaryResponse> toPageResponse(List<PolicyAvailabilityCandidate> candidates,

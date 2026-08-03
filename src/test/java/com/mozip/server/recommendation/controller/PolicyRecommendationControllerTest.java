@@ -22,6 +22,7 @@ import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.dto.PolicyEvaluationResponse;
+import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import java.time.LocalDate;
@@ -163,5 +164,36 @@ class PolicyRecommendationControllerTest {
                 .andExpect(status().isOk());
 
         verify(policyRecommendationService).getRecommendations(eq(1L), any(PolicySearchRequest.class), eq(true), any(Pageable.class));
+    }
+
+    @Test
+    void 인증_없이_패키지를_조회하면_401이다() throws Exception {
+        mockMvc.perform(get("/api/recommendations/packages"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 인증된_사용자는_패키지_목록을_조회한다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyRecommendationResponse item = new PolicyRecommendationResponse(
+                1L, "청년내일채움공제", "고용노동부",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyEvaluationResponse.EligibilityResponse(
+                        EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
+                new PolicyEvaluationResponse.AvailabilityResponse(
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
+                true
+        );
+        PolicyPackageResponse packageResponse = new PolicyPackageResponse(1L, "청년정책", List.of(item));
+        when(policyRecommendationService.getPackages(1L)).thenReturn(List.of(packageResponse));
+
+        mockMvc.perform(get("/api/recommendations/packages")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].categoryId").value(1))
+                .andExpect(jsonPath("$[0].categoryName").value("청년정책"))
+                .andExpect(jsonPath("$[0].policies[0].policyId").value(1))
+                .andExpect(jsonPath("$[0].policies[0].eligibility.status").value("ELIGIBLE"))
+                .andExpect(jsonPath("$[0].policies[0].bookmarked").value(true));
     }
 }
