@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -61,9 +62,11 @@ public class PolicyController {
         return policyService.getRecommendedPolicies(condition, pageable);
     }
 
-    @Operation(summary = "정책 상세 조회", description = "정책 ID로 상세 정보를 조회한다.")
+    @Operation(summary = "정책 상세 조회",
+            description = "정책 ID로 상세 정보를 조회한다. 로그인한 사용자의 경우 북마크 여부를 함께 반환한다.")
     @GetMapping("/{id}")
-    public PolicyDetailResponse getPolicyDetail(@PathVariable Long id) {
-        return policyService.getPolicyDetail(id);
+    public PolicyDetailResponse getPolicyDetail(@PathVariable Long id, Authentication authentication) {
+        Long userId = authentication != null ? Long.valueOf(authentication.getName()) : null;
+        return policyService.getPolicyDetail(id, userId);
     }
 }

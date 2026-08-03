@@ -24,11 +24,12 @@ public record PolicyDetailResponse(
         String sourceUrl,
         String organizationName,
         PolicyEligibilityResponse eligibility,
-        PolicyAvailabilityResponse availability
+        PolicyAvailabilityResponse availability,
+        boolean bookmarked
 ) {
 
     public static PolicyDetailResponse from(Policy policy, PolicyEligibility eligibility,
-                                             PolicyAvailabilityResult availabilityResult) {
+                                             PolicyAvailabilityResult availabilityResult, boolean bookmarked) {
         return new PolicyDetailResponse(
                 policy.getId(),
                 policy.getTitle(),
@@ -45,7 +46,8 @@ public record PolicyDetailResponse(
                 policy.getSourceUrl(),
                 policy.getOrganization().getName(),
                 eligibility != null ? PolicyEligibilityResponse.from(eligibility) : null,
-                PolicyAvailabilityResponse.from(availabilityResult)
+                PolicyAvailabilityResponse.from(availabilityResult),
+                bookmarked
         );
     }
 }
