@@ -21,4 +21,6 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
 
     @Query("SELECT b.policy.id FROM Bookmark b WHERE b.user.id = :userId AND b.policy.id IN :policyIds")
     List<Long> findBookmarkedPolicyIds(@Param("userId") Long userId, @Param("policyIds") List<Long> policyIds);
+
+    boolean existsByUserIdAndPolicyId(Long userId, Long policyId);
 }
