@@ -3,10 +3,12 @@ package com.mozip.server.recommendation.controller;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.PolicyStatus;
+import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -39,5 +41,13 @@ public class PolicyRecommendationController {
             @PageableDefault(size = 20) Pageable pageable) {
         PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, null);
         return policyRecommendationService.getRecommendations(Long.valueOf(userId), condition, onlyEligible, pageable);
+    }
+
+    @Operation(summary = "개인화 정책 패키지 조회",
+            description = "로그인 및 프로필 등록 사용자를 대상으로 적격성 판정 결과를 카테고리별로 그룹핑한 패키지 목록을 조회한다. "
+                    + "INELIGIBLE 판정 정책은 제외되며, 카테고리당 최대 5개까지 포함한다.")
+    @GetMapping("/api/recommendations/packages")
+    public List<PolicyPackageResponse> getPackages(@AuthenticationPrincipal String userId) {
+        return policyRecommendationService.getPackages(Long.valueOf(userId));
     }
 }
