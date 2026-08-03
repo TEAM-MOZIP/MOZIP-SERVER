@@ -2,6 +2,7 @@ package com.mozip.server.bookmark.controller;
 
 import com.mozip.server.bookmark.dto.BookmarkCreateRequest;
 import com.mozip.server.bookmark.dto.BookmarkResponse;
+import com.mozip.server.bookmark.repository.BookmarkSortValidator;
 import com.mozip.server.bookmark.service.BookmarkService;
 import com.mozip.server.global.dto.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,12 +41,16 @@ public class BookmarkController {
         return bookmarkService.addBookmark(Long.valueOf(userId), request.policyId());
     }
 
-    @Operation(summary = "내 북마크 목록 조회", description = "인증된 사용자 본인의 북마크 목록을 페이지 단위로 조회한다.")
+    @Operation(summary = "내 북마크 목록 조회",
+            description = "인증된 사용자 본인의 북마크 목록을 페이지 단위로 조회한다. "
+                    + "sort는 createdAt, applicationEndDate만 허용하며, applicationEndDate는 정렬 방향과 무관하게 "
+                    + "마감일이 없는 상시모집 정책이 항상 마지막에 위치한다.")
     @GetMapping
     public PageResponse<BookmarkResponse> getMyBookmarks(
             @AuthenticationPrincipal String userId,
-            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable) {
-        return bookmarkService.getMyBookmarks(Long.valueOf(userId), pageable);
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        Pageable validatedPageable = BookmarkSortValidator.validate(pageable);
+        return bookmarkService.getMyBookmarks(Long.valueOf(userId), validatedPageable);
     }
 
     @Operation(summary = "정책 북마크 해제", description = "인증된 사용자 본인의 정책 북마크를 해제한다. 대상이 없어도 동일하게 처리한다.")
