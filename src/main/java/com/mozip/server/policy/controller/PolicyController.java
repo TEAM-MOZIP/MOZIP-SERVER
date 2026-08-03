@@ -5,11 +5,13 @@ import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
+import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.repository.PolicySortValidator;
 import com.mozip.server.policy.service.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -68,5 +70,13 @@ public class PolicyController {
     public PolicyDetailResponse getPolicyDetail(@PathVariable Long id, Authentication authentication) {
         Long userId = authentication != null ? Long.valueOf(authentication.getName()) : null;
         return policyService.getPolicyDetail(id, userId);
+    }
+
+    @Operation(summary = "공개 정책 패키지 조회",
+            description = "비로그인 사용자를 위한 카테고리별 정책 패키지 목록을 조회한다. "
+                    + "기존 공개 추천(신청 가능 여부 기준) 후보를 카테고리별로 그룹핑하며, 카테고리당 최대 5개까지 포함한다.")
+    @GetMapping("/packages")
+    public List<PublicPolicyPackageResponse> getPackages() {
+        return policyService.getPackages();
     }
 }
