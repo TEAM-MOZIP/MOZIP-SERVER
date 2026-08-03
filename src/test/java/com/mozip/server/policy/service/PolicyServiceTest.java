@@ -11,13 +11,17 @@ import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
+import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.ApplicationType;
+import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.repository.CategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.user.entity.OAuthProvider;
@@ -25,6 +29,7 @@ import com.mozip.server.user.entity.User;
 import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -53,6 +58,9 @@ class PolicyServiceTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private CategoryRepository categoryRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -317,6 +325,73 @@ class PolicyServiceTest {
         assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
     }
 
+    @Test
+    void 공개_패키지는_카테고리별로_그룹핑되어_반환된다() {
+        Category category = createCategory("PKG_PUB_GROUP", KEYWORD + "-공개그룹핑카테고리");
+        Policy policy = createPolicy(KEYWORD + "-공개패키지", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        linkCategory(policy, category);
+
+        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+
+        PublicPolicyPackageResponse matched = packages.stream()
+                .filter(response -> response.categoryId().equals(category.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(matched.categoryName()).isEqualTo(category.getName());
+        assertThat(matched.policies()).extracting(PolicySummaryResponse::id).containsExactly(policy.getId());
+    }
+
+    @Test
+    void 공개_패키지_내부는_기존_공개_추천_정렬을_유지한다() {
+        Category category = createCategory("PKG_PUB_SORT", KEYWORD + "-공개정렬카테고리");
+        Policy unavailablePolicy = createPolicy(KEYWORD + "-공개정렬-마감", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.now().minusYears(1), LocalDate.now().minusMonths(1));
+        Policy availablePolicy = createPolicy(KEYWORD + "-공개정렬-상시", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+                null, null);
+        linkCategory(unavailablePolicy, category);
+        linkCategory(availablePolicy, category);
+
+        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+
+        PublicPolicyPackageResponse matched = packages.stream()
+                .filter(response -> response.categoryId().equals(category.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(matched.policies()).extracting(PolicySummaryResponse::id)
+                .containsExactly(availablePolicy.getId(), unavailablePolicy.getId());
+    }
+
+    @Test
+    void 공개_패키지는_그룹당_최대_5개까지만_포함한다() {
+        Category category = createCategory("PKG_PUB_MAX", KEYWORD + "-공개최대카테고리");
+        for (int i = 0; i < 6; i++) {
+            Policy policy = createPolicy(KEYWORD + "-공개최대-" + i, PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+                    null, null);
+            linkCategory(policy, category);
+        }
+
+        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+
+        PublicPolicyPackageResponse matched = packages.stream()
+                .filter(response -> response.categoryId().equals(category.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(matched.policies()).hasSize(5);
+    }
+
+    @Test
+    void 카테고리가_없는_정책은_공개_패키지에서_제외된다() {
+        Policy uncategorized = createPolicy(KEYWORD + "-공개미분류", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+
+        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+
+        List<Long> exposedPolicyIds = packages.stream()
+                .flatMap(response -> response.policies().stream())
+                .map(PolicySummaryResponse::id)
+                .toList();
+        assertThat(exposedPolicyIds).doesNotContain(uncategorized.getId());
+    }
+
     private PolicySummaryResponse findById(PageResponse<PolicySummaryResponse> response, Long policyId) {
         return response.content().stream()
                 .filter(summary -> summary.id().equals(policyId))
@@ -350,5 +425,13 @@ class PolicyServiceTest {
                 .provider(OAuthProvider.KAKAO)
                 .providerUserId(providerUserId)
                 .build());
+    }
+
+    private Category createCategory(String code, String name) {
+        return categoryRepository.save(Category.builder().code(code).name(name).build());
+    }
+
+    private void linkCategory(Policy policy, Category category) {
+        entityManager.persist(PolicyCategory.builder().policy(policy).category(category).build());
     }
 }

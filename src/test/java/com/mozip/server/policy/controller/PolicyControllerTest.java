@@ -22,6 +22,7 @@ import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
+import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
@@ -188,5 +189,26 @@ class PolicyControllerTest {
         ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
         verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class));
         assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.AGE_25_29);
+    }
+
+    @Test
+    void 공개_패키지_조회는_인증_없이_200을_반환한다() throws Exception {
+        PolicySummaryResponse summary = new PolicySummaryResponse(
+                1L, "청년 월세 지원", "월세 지원 사업", "서울특별시",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                RegionScope.REGIONAL, PolicyStatus.OPEN,
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
+                        true)
+        );
+        PublicPolicyPackageResponse packageResponse = new PublicPolicyPackageResponse(1L, "청년정책", List.of(summary));
+        when(policyService.getPackages()).thenReturn(List.of(packageResponse));
+
+        mockMvc.perform(get("/api/policies/packages"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].categoryId").value(1))
+                .andExpect(jsonPath("$[0].categoryName").value("청년정책"))
+                .andExpect(jsonPath("$[0].policies[0].title").value("청년 월세 지원"))
+                .andExpect(jsonPath("$[0].policies[0].eligibility").doesNotExist())
+                .andExpect(jsonPath("$[0].policies[0].bookmarked").doesNotExist());
     }
 }
