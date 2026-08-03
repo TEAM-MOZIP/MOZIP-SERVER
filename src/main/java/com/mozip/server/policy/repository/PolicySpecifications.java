@@ -1,10 +1,13 @@
 package com.mozip.server.policy.repository;
 
+import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyCategory;
+import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
@@ -59,5 +62,28 @@ public class PolicySpecifications {
             return null;
         }
         return (root, query, cb) -> cb.equal(root.get("status"), status);
+    }
+
+    public static Specification<Policy> hasAgeGroup(AgeGroup ageGroup) {
+        if (ageGroup == null) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            Subquery<Long> nonOverlapping = query.subquery(Long.class);
+            Root<PolicyEligibility> eligibility = nonOverlapping.from(PolicyEligibility.class);
+
+            Predicate belowRange = ageGroup.getMinAge() == null
+                    ? cb.disjunction()
+                    : cb.and(cb.isNotNull(eligibility.get("maximumAge")),
+                            cb.lessThan(eligibility.get("maximumAge"), ageGroup.getMinAge()));
+            Predicate aboveRange = ageGroup.getMaxAge() == null
+                    ? cb.disjunction()
+                    : cb.and(cb.isNotNull(eligibility.get("minimumAge")),
+                            cb.greaterThan(eligibility.get("minimumAge"), ageGroup.getMaxAge()));
+
+            nonOverlapping.select(eligibility.get("policy").get("id"))
+                    .where(cb.or(belowRange, aboveRange));
+            return cb.not(root.get("id").in(nonOverlapping));
+        };
     }
 }

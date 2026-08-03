@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
@@ -11,9 +12,11 @@ import com.mozip.server.policy.dto.PolicySummaryResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
@@ -38,6 +41,9 @@ class PolicyServiceTest {
     private PolicyRepository policyRepository;
 
     @Autowired
+    private PolicyEligibilityRepository policyEligibilityRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Test
@@ -48,7 +54,7 @@ class PolicyServiceTest {
                 LocalDate.now().minusYears(1), LocalDate.now().minusMonths(1));
 
         PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
-                new PolicySearchRequest(KEYWORD, null, null, null), PageRequest.of(0, 20));
+                new PolicySearchRequest(KEYWORD, null, null, null, null), PageRequest.of(0, 20));
 
         assertThat(response.content()).hasSize(2);
         assertThat(findById(response, availablePolicy.getId()).availability().status())
@@ -82,7 +88,7 @@ class PolicyServiceTest {
                 null, null);
 
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-공개", null, null, null), PageRequest.of(0, 20));
+                new PolicySearchRequest(KEYWORD + "-공개", null, null, null, null), PageRequest.of(0, 20));
 
         assertThat(response.content()).extracting(PolicySummaryResponse::id)
                 .containsExactly(availablePolicy.getId(), unavailablePolicy.getId());
@@ -100,7 +106,7 @@ class PolicyServiceTest {
                 null, null);
 
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-경계", null, null, null), PageRequest.of(0, 1));
+                new PolicySearchRequest(KEYWORD + "-경계", null, null, null, null), PageRequest.of(0, 1));
 
         assertThat(response.totalElements()).isEqualTo(3);
         assertThat(response.totalPages()).isEqualTo(3);
@@ -115,7 +121,7 @@ class PolicyServiceTest {
         createPolicy("다른정책-필터불일치", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
 
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-필터매치", null, null, null), PageRequest.of(0, 20));
+                new PolicySearchRequest(KEYWORD + "-필터매치", null, null, null, null), PageRequest.of(0, 20));
 
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).id()).isEqualTo(matched.getId());
@@ -131,7 +137,7 @@ class PolicyServiceTest {
                 LocalDate.now().minusDays(1), LocalDate.now().plusDays(30));
 
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-페이지", null, null, null), PageRequest.of(1, 2));
+                new PolicySearchRequest(KEYWORD + "-페이지", null, null, null, null), PageRequest.of(1, 2));
 
         assertThat(response.totalElements()).isEqualTo(3);
         assertThat(response.totalPages()).isEqualTo(2);
@@ -145,7 +151,7 @@ class PolicyServiceTest {
         createPolicy(KEYWORD + "-오버플로", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
 
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-오버플로", null, null, null), PageRequest.of(21474837, 100));
+                new PolicySearchRequest(KEYWORD + "-오버플로", null, null, null, null), PageRequest.of(21474837, 100));
 
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isEqualTo(1);
@@ -156,13 +162,106 @@ class PolicyServiceTest {
     @Test
     void 공개_추천_검색_결과가_없으면_빈_목록을_예외_없이_반환한다() {
         PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
-                new PolicySearchRequest(KEYWORD + "-존재하지않는키워드", null, null, null), PageRequest.of(0, 20));
+                new PolicySearchRequest(KEYWORD + "-존재하지않는키워드", null, null, null, null), PageRequest.of(0, 20));
 
         assertThat(response.content()).isEmpty();
         assertThat(response.totalElements()).isZero();
         assertThat(response.totalPages()).isZero();
         assertThat(response.first()).isTrue();
         assertThat(response.last()).isTrue();
+    }
+
+    @Test
+    void 연령_구간이_겹치는_정책만_ageGroup_필터에_매칭된다() {
+        Policy matched = createPolicy(KEYWORD + "-연령매치", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(matched).minimumAge(25).maximumAge(29).build());
+        Policy notMatched = createPolicy(KEYWORD + "-연령매치", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(notMatched).minimumAge(30).maximumAge(34).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-연령매치", null, null, null, AgeGroup.AGE_25_29), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(matched.getId());
+    }
+
+    @Test
+    void 연령_제한_근거가_없는_정책은_ageGroup_필터에서도_포함된다() {
+        Policy noEligibilityRecord = createPolicy(KEYWORD + "-연령없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        Policy bothNull = createPolicy(KEYWORD + "-연령없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(bothNull).build());
+        Policy outOfRange = createPolicy(KEYWORD + "-연령없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(outOfRange).minimumAge(100).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-연령없음", null, null, null, AgeGroup.AGE_25_29), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id)
+                .containsExactlyInAnyOrder(noEligibilityRecord.getId(), bothNull.getId());
+    }
+
+    @Test
+    void 한쪽_경계만_있는_정책도_구간과_겹치면_ageGroup_필터에_포함된다() {
+        Policy overlapping = createPolicy(KEYWORD + "-한쪽경계", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(overlapping).minimumAge(60).build());
+        Policy nonOverlapping = createPolicy(KEYWORD + "-한쪽경계", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(nonOverlapping).minimumAge(70).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-한쪽경계", null, null, null, AgeGroup.AGE_50_64), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
+    }
+
+    @Test
+    void 상한이_구간_시작과_정확히_같으면_겹침으로_처리된다() {
+        Policy boundaryMatch = createPolicy(KEYWORD + "-경계값", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(boundaryMatch).minimumAge(20).maximumAge(25).build());
+        Policy boundaryMismatch = createPolicy(KEYWORD + "-경계값", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(boundaryMismatch).minimumAge(20).maximumAge(24).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-경계값", null, null, null, AgeGroup.AGE_25_29), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(boundaryMatch.getId());
+    }
+
+    @Test
+    void UNDER_19_구간_조회_시_상한만_있는_정책의_포함_여부가_정확히_판정된다() {
+        Policy overlapping = createPolicy(KEYWORD + "-19미만", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(overlapping).maximumAge(15).build());
+        Policy nonOverlapping = createPolicy(KEYWORD + "-19미만", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(nonOverlapping).minimumAge(20).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-19미만", null, null, null, AgeGroup.UNDER_19), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
+    }
+
+    @Test
+    void AGE_65_PLUS_구간_조회_시_하한만_있는_정책의_포함_여부가_정확히_판정된다() {
+        Policy overlapping = createPolicy(KEYWORD + "-65이상", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(overlapping).minimumAge(65).build());
+        Policy nonOverlapping = createPolicy(KEYWORD + "-65이상", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(nonOverlapping).maximumAge(64).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-65이상", null, null, null, AgeGroup.AGE_65_PLUS), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
+    }
+
+    @Test
+    void 상한만_있는_정책도_구간과_겹치면_ageGroup_필터에_포함된다() {
+        Policy overlapping = createPolicy(KEYWORD + "-상한만", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(overlapping).maximumAge(30).build());
+        Policy nonOverlapping = createPolicy(KEYWORD + "-상한만", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(nonOverlapping).maximumAge(24).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD + "-상한만", null, null, null, AgeGroup.AGE_25_29), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
     }
 
     private PolicySummaryResponse findById(PageResponse<PolicySummaryResponse> response, Long policyId) {

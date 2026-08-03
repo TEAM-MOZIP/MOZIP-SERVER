@@ -1,6 +1,8 @@
 package com.mozip.server.policy.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,6 +13,7 @@ import com.mozip.server.auth.config.CustomAuthenticationEntryPoint;
 import com.mozip.server.auth.config.SecurityConfig;
 import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
@@ -25,6 +28,7 @@ import com.mozip.server.policy.service.PolicyService;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -117,5 +121,39 @@ class PolicyControllerTest {
         mockMvc.perform(get("/api/policies").param("status", "INVALID_VALUE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void 잘못된_ageGroup_값을_전달하면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/policies").param("ageGroup", "INVALID_VALUE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void 허용되지_않은_정렬_필드를_요청하면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/policies").param("sort", "title,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void id로_직접_정렬을_요청하면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/policies").param("sort", "id,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void ageGroup_파라미터가_Service에_전달된다() throws Exception {
+        PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
+        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(get("/api/policies").param("ageGroup", "AGE_25_29"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
+        verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class));
+        assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.AGE_25_29);
     }
 }

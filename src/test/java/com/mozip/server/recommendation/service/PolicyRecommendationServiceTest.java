@@ -100,7 +100,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(mismatchingRegionalPolicy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD, null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD, null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(response.content()).hasSize(3);
         assertThat(findByPolicyId(response, nationalPolicy.getId()).eligibility().status())
@@ -123,7 +123,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-정렬", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-정렬", null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
                 .containsExactly(eligiblePolicy.getId(), needsReviewPolicy.getId(), ineligiblePolicy.getId());
@@ -141,7 +141,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-필터", null, null, null), true, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-필터", null, null, null, null), true, PageRequest.of(0, 20));
 
         assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
                 .containsExactly(eligiblePolicy.getId());
@@ -160,7 +160,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-필터페이지", null, null, null), true,
+                user.getId(), new PolicySearchRequest(KEYWORD + "-필터페이지", null, null, null, null), true,
                 PageRequest.of(0, 2));
 
         assertThat(response.totalElements()).isEqualTo(3);
@@ -178,7 +178,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-필터없음-보류", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-필터없음", null, null, null), true,
+                user.getId(), new PolicySearchRequest(KEYWORD + "-필터없음", null, null, null, null), true,
                 PageRequest.of(0, 20));
 
         assertThat(response.content()).isEmpty();
@@ -202,7 +202,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-경계", null, null, null), false, PageRequest.of(0, 1));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-경계", null, null, null, null), false, PageRequest.of(0, 1));
 
         assertThat(response.totalElements()).isEqualTo(3);
         assertThat(response.totalPages()).isEqualTo(3);
@@ -225,7 +225,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-정확한경계2", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-정확한경계", null, null, null), false, PageRequest.of(0, 2));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-정확한경계", null, null, null, null), false, PageRequest.of(0, 2));
 
         assertThat(response.totalElements()).isEqualTo(2);
         assertThat(response.totalPages()).isEqualTo(1);
@@ -241,7 +241,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-오버플로", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-오버플로", null, null, null), false,
+                user.getId(), new PolicySearchRequest(KEYWORD + "-오버플로", null, null, null, null), false,
                 PageRequest.of(21474837, 100));
 
         assertThat(response.content()).isEmpty();
@@ -257,7 +257,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-자격없음", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-자격없음", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-자격없음", null, null, null, null), false, PageRequest.of(0, 20));
 
         PolicyRecommendationResponse item = response.content().get(0);
         assertThat(item.eligibility().status()).isEqualTo(EligibilityStatus.NEEDS_REVIEW);
@@ -274,7 +274,7 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(matched).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-필터매치", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-필터매치", null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).policyId()).isEqualTo(matched.getId());
@@ -286,7 +286,7 @@ class PolicyRecommendationServiceTest {
         createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-존재하지않는키워드", null, null, null), false,
+                user.getId(), new PolicySearchRequest(KEYWORD + "-존재하지않는키워드", null, null, null, null), false,
                 PageRequest.of(0, 20));
 
         assertThat(response.content()).isEmpty();
@@ -306,7 +306,7 @@ class PolicyRecommendationServiceTest {
         bookmarkRepository.save(Bookmark.builder().user(user).policy(bookmarkedPolicy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크", null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(findByPolicyId(response, bookmarkedPolicy.getId()).bookmarked()).isTrue();
         assertThat(findByPolicyId(response, notBookmarkedPolicy.getId()).bookmarked()).isFalse();
@@ -319,7 +319,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-북마크없음", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크없음", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-북마크없음", null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(response.content()).isNotEmpty();
         assertThat(response.content()).allMatch(item -> !item.bookmarked());
@@ -334,7 +334,7 @@ class PolicyRecommendationServiceTest {
         bookmarkRepository.save(Bookmark.builder().user(owner).policy(policy).build());
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                viewer.getId(), new PolicySearchRequest(KEYWORD + "-타인북마크", null, null, null), false, PageRequest.of(0, 20));
+                viewer.getId(), new PolicySearchRequest(KEYWORD + "-타인북마크", null, null, null, null), false, PageRequest.of(0, 20));
 
         assertThat(response.content().get(0).bookmarked()).isFalse();
     }
@@ -348,7 +348,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-배치3", RegionScope.NATIONAL);
 
         policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-배치", null, null, null), false, PageRequest.of(0, 20));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-배치", null, null, null, null), false, PageRequest.of(0, 20));
 
         verify(bookmarkRepository, times(1)).findBookmarkedPolicyIds(any(), any());
     }
@@ -361,7 +361,7 @@ class PolicyRecommendationServiceTest {
         createPolicy(KEYWORD + "-페이지2", RegionScope.NATIONAL);
 
         PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(KEYWORD + "-페이지", null, null, null), false, PageRequest.of(0, 1));
+                user.getId(), new PolicySearchRequest(KEYWORD + "-페이지", null, null, null, null), false, PageRequest.of(0, 1));
 
         assertThat(response.totalElements()).isEqualTo(2);
         assertThat(response.totalPages()).isEqualTo(2);
@@ -374,7 +374,7 @@ class PolicyRecommendationServiceTest {
         User user = createUser("no-profile@example.com", "no-profile-1");
 
         assertThatThrownBy(() -> policyRecommendationService.getRecommendations(
-                user.getId(), new PolicySearchRequest(null, null, null, null), false, PageRequest.of(0, 20)))
+                user.getId(), new PolicySearchRequest(null, null, null, null, null), false, PageRequest.of(0, 20)))
                 .isInstanceOf(UserProfileNotFoundException.class);
     }
 
