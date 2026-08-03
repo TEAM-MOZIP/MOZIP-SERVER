@@ -142,6 +142,28 @@ class BookmarkControllerTest {
     }
 
     @Test
+    void 허용되지_않은_정렬_필드를_요청하면_400을_반환한다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+
+        mockMvc.perform(get("/api/bookmarks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .param("sort", "title,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void id로_직접_정렬을_요청하면_400을_반환한다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+
+        mockMvc.perform(get("/api/bookmarks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .param("sort", "id,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void 해제에_성공하면_204다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
 
