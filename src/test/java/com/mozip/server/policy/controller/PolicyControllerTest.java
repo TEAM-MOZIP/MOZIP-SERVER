@@ -2,6 +2,8 @@ package com.mozip.server.policy.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -44,6 +46,9 @@ class PolicyControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
 
     @MockitoBean
     private PolicyService policyService;
@@ -91,29 +96,57 @@ class PolicyControllerTest {
     }
 
     @Test
-    void 정책_상세_조회에_성공한다() throws Exception {
-        PolicyDetailResponse detail = new PolicyDetailResponse(
-                1L, "청년 월세 지원", "월세 지원 사업", "상세 설명", "지원 대상", "지원 내용", "온라인 신청",
-                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
-                RegionScope.REGIONAL, PolicyStatus.OPEN, "https://example.com", "서울특별시", null,
-                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
-                        false)
-        );
-        when(policyService.getPolicyDetail(1L)).thenReturn(detail);
+    void 비로그인_상태로_정책_상세를_조회하면_bookmarked가_false다() throws Exception {
+        PolicyDetailResponse detail = policyDetail(false);
+        when(policyService.getPolicyDetail(eq(1L), isNull())).thenReturn(detail);
 
         mockMvc.perform(get("/api/policies/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("청년 월세 지원"))
-                .andExpect(jsonPath("$.availability.status").value("AVAILABLE"));
+                .andExpect(jsonPath("$.availability.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.bookmarked").value(false));
+    }
+
+    @Test
+    void 로그인_상태에서_북마크한_정책은_bookmarked가_true다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyDetailResponse detail = policyDetail(true);
+        when(policyService.getPolicyDetail(eq(1L), eq(1L))).thenReturn(detail);
+
+        mockMvc.perform(get("/api/policies/1").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookmarked").value(true));
+    }
+
+    @Test
+    void 로그인_상태여도_북마크하지_않은_정책은_bookmarked가_false다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyDetailResponse detail = policyDetail(false);
+        when(policyService.getPolicyDetail(eq(1L), eq(1L))).thenReturn(detail);
+
+        mockMvc.perform(get("/api/policies/1").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookmarked").value(false));
     }
 
     @Test
     void 존재하지_않는_정책을_조회하면_404를_반환한다() throws Exception {
-        when(policyService.getPolicyDetail(999L)).thenThrow(new PolicyNotFoundException(999L));
+        when(policyService.getPolicyDetail(eq(999L), isNull())).thenThrow(new PolicyNotFoundException(999L));
 
         mockMvc.perform(get("/api/policies/999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("POLICY_NOT_FOUND"));
+    }
+
+    private PolicyDetailResponse policyDetail(boolean bookmarked) {
+        return new PolicyDetailResponse(
+                1L, "청년 월세 지원", "월세 지원 사업", "상세 설명", "지원 대상", "지원 내용", "온라인 신청",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                RegionScope.REGIONAL, PolicyStatus.OPEN, "https://example.com", "서울특별시", null,
+                new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
+                        false),
+                bookmarked
+        );
     }
 
     @Test

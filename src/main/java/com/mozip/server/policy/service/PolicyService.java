@@ -1,5 +1,6 @@
 package com.mozip.server.policy.service;
 
+import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityCandidate;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
@@ -29,12 +30,14 @@ public class PolicyService {
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
+    private final BookmarkRepository bookmarkRepository;
 
     public PolicyService(PolicyRepository policyRepository, PolicyEligibilityRepository policyEligibilityRepository,
-                          PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
+                          PolicyAvailabilityEvaluator policyAvailabilityEvaluator, BookmarkRepository bookmarkRepository) {
         this.policyRepository = policyRepository;
         this.policyEligibilityRepository = policyEligibilityRepository;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
+        this.bookmarkRepository = bookmarkRepository;
     }
 
     public PageResponse<PolicySummaryResponse> searchPolicies(PolicySearchRequest condition, Pageable pageable) {
@@ -52,13 +55,14 @@ public class PolicyService {
         return PageResponse.from(summaries);
     }
 
-    public PolicyDetailResponse getPolicyDetail(Long policyId) {
+    public PolicyDetailResponse getPolicyDetail(Long policyId, Long userId) {
         Policy policy = policyRepository.findWithOrganizationById(policyId)
                 .orElseThrow(() -> new PolicyNotFoundException(policyId));
         PolicyEligibility eligibility = policyEligibilityRepository.findByPolicyId(policyId)
                 .orElse(null);
         PolicyAvailabilityResult availabilityResult = policyAvailabilityEvaluator.evaluate(policy);
-        return PolicyDetailResponse.from(policy, eligibility, availabilityResult);
+        boolean bookmarked = userId != null && bookmarkRepository.existsByUserIdAndPolicyId(userId, policyId);
+        return PolicyDetailResponse.from(policy, eligibility, availabilityResult, bookmarked);
     }
 
     public PageResponse<PolicySummaryResponse> getRecommendedPolicies(PolicySearchRequest condition, Pageable pageable) {

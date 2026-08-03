@@ -3,6 +3,8 @@ package com.mozip.server.policy.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.mozip.server.bookmark.entity.Bookmark;
+import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.domain.PolicyAvailability;
@@ -18,6 +20,9 @@ import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
+import com.mozip.server.user.entity.OAuthProvider;
+import com.mozip.server.user.entity.User;
+import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -44,6 +49,12 @@ class PolicyServiceTest {
     private PolicyEligibilityRepository policyEligibilityRepository;
 
     @Autowired
+    private BookmarkRepository bookmarkRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Test
@@ -67,15 +78,57 @@ class PolicyServiceTest {
     void 상세_조회_시_availability가_올바르게_응답된다() {
         Policy policy = createPolicy(KEYWORD + "-상세", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
 
-        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId());
+        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId(), null);
 
         assertThat(response.availability().status()).isEqualTo(PolicyAvailability.AVAILABLE);
     }
 
     @Test
     void 존재하지_않는_정책_상세_조회_시_예외가_발생한다() {
-        assertThatThrownBy(() -> policyService.getPolicyDetail(999999L))
+        assertThatThrownBy(() -> policyService.getPolicyDetail(999999L, null))
                 .isInstanceOf(PolicyNotFoundException.class);
+    }
+
+    @Test
+    void 비로그인_상태로_상세_조회_시_bookmarked는_false다() {
+        Policy policy = createPolicy(KEYWORD + "-비로그인상세", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+
+        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId(), null);
+
+        assertThat(response.bookmarked()).isFalse();
+    }
+
+    @Test
+    void 로그인_사용자가_북마크한_정책은_상세_조회에서_bookmarked가_true다() {
+        User user = createUser("policy-detail-bookmarked@example.com", "policy-detail-bookmarked-1");
+        Policy policy = createPolicy(KEYWORD + "-북마크있음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        bookmarkRepository.save(Bookmark.builder().user(user).policy(policy).build());
+
+        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId(), user.getId());
+
+        assertThat(response.bookmarked()).isTrue();
+    }
+
+    @Test
+    void 로그인_사용자여도_북마크하지_않은_정책은_상세_조회에서_bookmarked가_false다() {
+        User user = createUser("policy-detail-not-bookmarked@example.com", "policy-detail-not-bookmarked-1");
+        Policy policy = createPolicy(KEYWORD + "-북마크없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+
+        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId(), user.getId());
+
+        assertThat(response.bookmarked()).isFalse();
+    }
+
+    @Test
+    void 다른_사용자가_북마크한_정책은_상세_조회의_bookmarked에_반영되지_않는다() {
+        User owner = createUser("policy-detail-owner@example.com", "policy-detail-owner-1");
+        User viewer = createUser("policy-detail-viewer@example.com", "policy-detail-viewer-1");
+        Policy policy = createPolicy(KEYWORD + "-타인북마크", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        bookmarkRepository.save(Bookmark.builder().user(owner).policy(policy).build());
+
+        PolicyDetailResponse response = policyService.getPolicyDetail(policy.getId(), viewer.getId());
+
+        assertThat(response.bookmarked()).isFalse();
     }
 
     @Test
@@ -289,5 +342,13 @@ class PolicyServiceTest {
                 .status(status)
                 .build();
         return policyRepository.save(policy);
+    }
+
+    private User createUser(String email, String providerUserId) {
+        return userRepository.save(User.builder()
+                .email(email)
+                .provider(OAuthProvider.KAKAO)
+                .providerUserId(providerUserId)
+                .build());
     }
 }
