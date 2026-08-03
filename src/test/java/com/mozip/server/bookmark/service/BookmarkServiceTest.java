@@ -21,10 +21,12 @@ import com.mozip.server.user.entity.OAuthProvider;
 import com.mozip.server.user.entity.User;
 import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -127,6 +129,67 @@ class BookmarkServiceTest {
     }
 
     @Test
+    void 오프셋_계산이_오버플로되는_page_요청에서도_예외_없이_빈_목록을_반환한다() {
+        User user = createUser("bookmark-offset-overflow@example.com", "bookmark-offset-overflow-1");
+        Policy policy = createPolicy("북마크테스트-오프셋오버플로");
+        bookmarkService.addBookmark(user.getId(), policy.getId());
+
+        PageResponse<BookmarkResponse> response = bookmarkService.getMyBookmarks(
+                user.getId(), PageRequest.of(21474837, 100));
+
+        assertThat(response.content()).isEmpty();
+        assertThat(response.totalElements()).isEqualTo(1);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.first()).isFalse();
+        assertThat(response.last()).isTrue();
+        assertThat(response.page()).isEqualTo(21474837);
+        assertThat(response.size()).isEqualTo(100);
+    }
+
+    @Test
+    void 신청_마감일_오름차순으로_정렬된다() {
+        User user = createUser("bookmark-sort-asc@example.com", "bookmark-sort-asc-1");
+        Policy later = createPolicyWithDeadline("북마크정렬-늦음", LocalDate.now().plusDays(30));
+        Policy earlier = createPolicyWithDeadline("북마크정렬-이름", LocalDate.now().plusDays(10));
+        bookmarkService.addBookmark(user.getId(), later.getId());
+        bookmarkService.addBookmark(user.getId(), earlier.getId());
+
+        PageResponse<BookmarkResponse> response = bookmarkService.getMyBookmarks(user.getId(), PageRequest.of(0, 20,
+                Sort.by(Sort.Direction.ASC, "applicationEndDate").and(Sort.by(Sort.Direction.DESC, "id"))));
+
+        assertThat(response.content()).extracting(BookmarkResponse::policyId)
+                .containsExactly(earlier.getId(), later.getId());
+    }
+
+    @Test
+    void 신청_마감일_내림차순에서도_상시모집_정책은_마지막이다() {
+        User user = createUser("bookmark-sort-desc-null@example.com", "bookmark-sort-desc-null-1");
+        Policy hasDeadline = createPolicyWithDeadline("북마크정렬-마감있음", LocalDate.now().plusDays(10));
+        Policy always = createPolicy("북마크정렬-상시");
+        bookmarkService.addBookmark(user.getId(), hasDeadline.getId());
+        bookmarkService.addBookmark(user.getId(), always.getId());
+
+        PageResponse<BookmarkResponse> response = bookmarkService.getMyBookmarks(user.getId(), PageRequest.of(0, 20,
+                Sort.by(Sort.Direction.DESC, "applicationEndDate").and(Sort.by(Sort.Direction.DESC, "id"))));
+
+        assertThat(response.content()).extracting(BookmarkResponse::policyId)
+                .containsExactly(hasDeadline.getId(), always.getId());
+    }
+
+    @Test
+    void 신청_마감일_정렬에도_신청불가_상태의_북마크가_포함된다() {
+        User user = createUser("bookmark-sort-unavailable@example.com", "bookmark-sort-unavailable-1");
+        Policy closed = createPolicyWithDeadline("북마크정렬-마감지남", LocalDate.now().minusDays(1));
+        bookmarkService.addBookmark(user.getId(), closed.getId());
+
+        PageResponse<BookmarkResponse> response = bookmarkService.getMyBookmarks(user.getId(), PageRequest.of(0, 20,
+                Sort.by(Sort.Direction.ASC, "applicationEndDate").and(Sort.by(Sort.Direction.DESC, "id"))));
+
+        assertThat(response.content()).extracting(BookmarkResponse::policyId).containsExactly(closed.getId());
+        assertThat(response.content().get(0).availability().status()).isEqualTo(PolicyAvailability.UNAVAILABLE);
+    }
+
+    @Test
     void 북마크를_해제한다() {
         User user = createUser("bookmark-remove@example.com", "bookmark-remove-1");
         Policy policy = createPolicy("북마크테스트-해제");
@@ -180,6 +243,25 @@ class BookmarkServiceTest {
                 .applicationType(ApplicationType.ALWAYS)
                 .regionScope(RegionScope.NATIONAL)
                 .status(PolicyStatus.ALWAYS_OPEN)
+                .build();
+        return policyRepository.save(policy);
+    }
+
+    private Policy createPolicyWithDeadline(String title, LocalDate applicationEndDate) {
+        Organization organization = Organization.builder()
+                .name("테스트기관")
+                .type("중앙부처")
+                .build();
+        entityManager.persist(organization);
+
+        Policy policy = Policy.builder()
+                .organization(organization)
+                .title(title)
+                .applicationType(ApplicationType.PERIOD)
+                .applicationStartDate(applicationEndDate.minusDays(30))
+                .applicationEndDate(applicationEndDate)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.OPEN)
                 .build();
         return policyRepository.save(policy);
     }

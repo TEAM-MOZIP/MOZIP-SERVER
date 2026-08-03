@@ -2,6 +2,7 @@ package com.mozip.server.bookmark.service;
 
 import com.mozip.server.bookmark.dto.BookmarkResponse;
 import com.mozip.server.bookmark.entity.Bookmark;
+import com.mozip.server.bookmark.evaluator.BookmarkComparator;
 import com.mozip.server.bookmark.exception.BookmarkAlreadyExistsException;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
@@ -12,8 +13,8 @@ import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.user.entity.User;
 import com.mozip.server.user.exception.UserNotFoundException;
 import com.mozip.server.user.repository.UserRepository;
+import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,9 +52,30 @@ public class BookmarkService {
     }
 
     public PageResponse<BookmarkResponse> getMyBookmarks(Long userId, Pageable pageable) {
-        Page<Bookmark> bookmarks = bookmarkRepository.findByUserId(userId, pageable);
-        return PageResponse.from(bookmarks.map(
-                bookmark -> BookmarkResponse.from(bookmark, policyAvailabilityEvaluator.evaluate(bookmark.getPolicy()))));
+        List<Bookmark> bookmarks = bookmarkRepository.findByUserId(userId).stream()
+                .sorted(BookmarkComparator.from(pageable.getSort()))
+                .toList();
+        return toPageResponse(bookmarks, pageable);
+    }
+
+    private PageResponse<BookmarkResponse> toPageResponse(List<Bookmark> bookmarks, Pageable pageable) {
+        int totalElements = bookmarks.size();
+        int size = pageable.getPageSize();
+        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
+        long offset = pageable.getOffset();
+
+        List<Bookmark> pageContent = offset >= totalElements
+                ? List.of()
+                : bookmarks.subList((int) offset, (int) Math.min(offset + size, totalElements));
+
+        List<BookmarkResponse> content = pageContent.stream()
+                .map(bookmark -> BookmarkResponse.from(bookmark, policyAvailabilityEvaluator.evaluate(bookmark.getPolicy())))
+                .toList();
+
+        boolean first = pageable.getPageNumber() == 0;
+        boolean last = pageable.getPageNumber() >= totalPages - 1;
+
+        return new PageResponse<>(content, pageable.getPageNumber(), size, totalElements, totalPages, first, last);
     }
 
     @Transactional
