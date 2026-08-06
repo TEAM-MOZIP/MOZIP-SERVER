@@ -43,9 +43,9 @@ public class UserProfile {
     @JoinColumn(name = "region_id")
     private Region region;
 
-    // TODO: gender 허용값이 프로젝트 차원에서 확정되면 자유 문자열 대신 Enum으로 전환
+    @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private String gender;
+    private Gender gender;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "income_type", length = 20)
@@ -71,7 +71,7 @@ public class UserProfile {
     private LocalDateTime updatedAt;
 
     @Builder
-    public UserProfile(User user, LocalDate birthDate, Region region, String gender, IncomeType incomeType,
+    public UserProfile(User user, LocalDate birthDate, Region region, Gender gender, IncomeType incomeType,
                         Integer incomeValue, EmploymentStatus employmentStatus, HouseholdType householdType) {
         this.user = user;
         this.birthDate = birthDate;
@@ -83,7 +83,7 @@ public class UserProfile {
         this.householdType = householdType;
     }
 
-    public void update(LocalDate birthDate, Region region, String gender, IncomeType incomeType,
+    public void update(LocalDate birthDate, Region region, Gender gender, IncomeType incomeType,
                         Integer incomeValue, EmploymentStatus employmentStatus, HouseholdType householdType) {
         this.birthDate = birthDate;
         this.region = region;
