@@ -8,6 +8,7 @@ import com.mozip.server.region.repository.RegionRepository;
 import com.mozip.server.user.dto.UserProfileResponse;
 import com.mozip.server.user.dto.UserProfileUpdateRequest;
 import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.OAuthProvider;
@@ -54,14 +55,17 @@ class UserProfileServiceTest {
         User user = createUser("profile-new@example.com", "profile-new-1");
         Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), regionId, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), regionId, Gender.MALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
 
         UserProfileResponse response = userProfileService.upsertMyProfile(user.getId(), request);
 
+        assertThat(response.gender()).isEqualTo(Gender.MALE);
         assertThat(response.incomeValue()).isEqualTo(80);
-        assertThat(userProfileService.getMyProfile(user.getId()).incomeValue()).isEqualTo(80);
+        UserProfileResponse refetched = userProfileService.getMyProfile(user.getId());
+        assertThat(refetched.gender()).isEqualTo(Gender.MALE);
+        assertThat(refetched.incomeValue()).isEqualTo(80);
     }
 
     @Test
@@ -69,15 +73,16 @@ class UserProfileServiceTest {
         User user = createUser("profile-update@example.com", "profile-update-1");
         Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
         userProfileService.upsertMyProfile(user.getId(), new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), regionId, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         ));
 
         UserProfileResponse response = userProfileService.upsertMyProfile(user.getId(), new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), regionId, "F", IncomeType.ABSOLUTE, 120,
+                LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.ABSOLUTE, 120,
                 EmploymentStatus.EMPLOYED, HouseholdType.SINGLE
         ));
 
+        assertThat(response.gender()).isEqualTo(Gender.FEMALE);
         assertThat(response.incomeValue()).isEqualTo(120);
         assertThat(response.incomeType()).isEqualTo(IncomeType.ABSOLUTE);
         assertThat(response.employmentStatus()).isEqualTo(EmploymentStatus.EMPLOYED);
@@ -95,7 +100,7 @@ class UserProfileServiceTest {
     void 존재하지_않는_지역이면_예외가_발생한다() {
         User user = createUser("profile-badregion@example.com", "profile-badregion-1");
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), 999999L, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), 999999L, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
 
@@ -110,7 +115,7 @@ class UserProfileServiceTest {
         Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
 
         userProfileService.upsertMyProfile(userA.getId(), new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), regionId, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         ));
 
@@ -124,7 +129,7 @@ class UserProfileServiceTest {
         User user = createUser("profile-concurrent@example.com", "profile-concurrent-1");
         Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), regionId, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
 

@@ -26,6 +26,7 @@ import com.mozip.server.recommendation.evaluator.PolicyEligibilityEvaluator;
 import com.mozip.server.region.entity.Region;
 import com.mozip.server.region.repository.RegionRepository;
 import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.OAuthProvider;
@@ -160,7 +161,7 @@ class PolicyEligibilityServiceTest {
                 .user(user)
                 .birthDate(LocalDate.of(1998, 5, 14))
                 .region(region)
-                .gender("F")
+                .gender(Gender.FEMALE)
                 .incomeType(IncomeType.MEDIAN_PERCENTAGE)
                 .incomeValue(80)
                 .employmentStatus(EmploymentStatus.JOB_SEEKER)

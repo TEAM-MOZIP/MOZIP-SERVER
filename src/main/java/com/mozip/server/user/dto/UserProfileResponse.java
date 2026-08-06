@@ -1,6 +1,7 @@
 package com.mozip.server.user.dto;
 
 import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.UserProfile;
@@ -11,7 +12,7 @@ public record UserProfileResponse(
         LocalDate birthDate,
         Long regionId,
         String regionName,
-        String gender,
+        Gender gender,
         IncomeType incomeType,
         Integer incomeValue,
         EmploymentStatus employmentStatus,

@@ -19,6 +19,7 @@ import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.user.dto.UserProfileResponse;
 import com.mozip.server.user.dto.UserProfileUpdateRequest;
 import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.exception.UserProfileAlreadyExistsException;
@@ -60,12 +61,13 @@ class UserProfileControllerTest {
     void 인증된_사용자는_자신의_프로필을_조회한다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         when(userProfileService.getMyProfile(eq(1L))).thenReturn(new UserProfileResponse(
-                1L, LocalDate.of(1998, 5, 14), 3L, "서울특별시", "F",
+                1L, LocalDate.of(1998, 5, 14), 3L, "서울특별시", Gender.FEMALE,
                 IncomeType.MEDIAN_PERCENTAGE, 80, EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         ));
 
         mockMvc.perform(get("/api/users/me/profile").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gender").value("FEMALE"))
                 .andExpect(jsonPath("$.incomeValue").value(80));
     }
 
@@ -81,7 +83,7 @@ class UserProfileControllerTest {
     void 미래_생년월일이면_400이다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         UserProfileUpdateRequest invalidRequest = new UserProfileUpdateRequest(
-                LocalDate.now().plusDays(1), 3L, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.now().plusDays(1), 3L, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
 
@@ -97,7 +99,7 @@ class UserProfileControllerTest {
     void 소득값이_음수면_400이다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         UserProfileUpdateRequest invalidRequest = new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), 3L, "F", IncomeType.MEDIAN_PERCENTAGE, -1,
+                LocalDate.of(1998, 5, 14), 3L, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, -1,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
 
@@ -122,6 +124,7 @@ class UserProfileControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gender").value("FEMALE"))
                 .andExpect(jsonPath("$.incomeValue").value(80));
     }
 
@@ -131,7 +134,7 @@ class UserProfileControllerTest {
         String requestBody = "{"
                 + "\"birthDate\":\"1998-05-14\","
                 + "\"regionId\":3,"
-                + "\"gender\":\"F\","
+                + "\"gender\":\"FEMALE\","
                 + "\"incomeType\":\"NOT_A_REAL_VALUE\","
                 + "\"incomeValue\":80,"
                 + "\"employmentStatus\":\"JOB_SEEKER\","
@@ -148,6 +151,50 @@ class UserProfileControllerTest {
                 .andExpect(jsonPath("$.message", not(containsStringIgnoringCase("jackson"))))
                 .andExpect(jsonPath("$.message", not(containsString("MEDIAN_PERCENTAGE"))))
                 .andExpect(jsonPath("$.fieldErrors[0].reason", not(containsString("MEDIAN_PERCENTAGE"))));
+    }
+
+    @Test
+    void 허용되지_않은_성별_값을_보내면_400이다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        String requestBody = "{"
+                + "\"birthDate\":\"1998-05-14\","
+                + "\"regionId\":3,"
+                + "\"gender\":\"OTHER\","
+                + "\"incomeType\":\"MEDIAN_PERCENTAGE\","
+                + "\"incomeValue\":80,"
+                + "\"employmentStatus\":\"JOB_SEEKER\","
+                + "\"householdType\":\"SINGLE\"}";
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("gender"));
+    }
+
+    @Test
+    void 성별이_빈_문자열이면_400이고_내부_정보를_노출하지_않는다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        String requestBody = "{"
+                + "\"birthDate\":\"1998-05-14\","
+                + "\"regionId\":3,"
+                + "\"gender\":\"\","
+                + "\"incomeType\":\"MEDIAN_PERCENTAGE\","
+                + "\"incomeValue\":80,"
+                + "\"employmentStatus\":\"JOB_SEEKER\","
+                + "\"householdType\":\"SINGLE\"}";
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("gender"))
+                .andExpect(jsonPath("$.message", not(containsStringIgnoringCase("jackson"))))
+                .andExpect(jsonPath("$.message", not(containsString("MALE"))));
     }
 
     @Test
@@ -180,7 +227,7 @@ class UserProfileControllerTest {
 
     private UserProfileUpdateRequest validRequest() {
         return new UserProfileUpdateRequest(
-                LocalDate.of(1998, 5, 14), 3L, "F", IncomeType.MEDIAN_PERCENTAGE, 80,
+                LocalDate.of(1998, 5, 14), 3L, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
         );
     }
