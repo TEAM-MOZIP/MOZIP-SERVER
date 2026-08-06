@@ -14,6 +14,7 @@ import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
 import com.mozip.server.region.entity.Region;
 import com.mozip.server.user.entity.EmploymentStatus;
+import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.UserProfile;
@@ -415,17 +416,28 @@ class PolicyEligibilityEvaluatorTest {
     }
 
     @Test
-    void genderCondition이_있으면_NEEDS_REVIEW_조건이_추가되고_없으면_추가되지_않는다() {
-        UserProfile userProfile = baseProfile().build();
-        PolicyEligibility withGender = baseEligibility().genderCondition("FEMALE").build();
+    void genderCondition이_있으면_MALE_FEMALE_값과_무관하게_NEEDS_REVIEW이고_없으면_GENDER_조건이_추가되지_않는다() {
+        UserProfile userProfile = baseProfile().gender(Gender.FEMALE).build();
+        PolicyEligibility matchingGender = baseEligibility().genderCondition(Gender.FEMALE).build();
+        PolicyEligibility differentGender = baseEligibility().genderCondition(Gender.MALE).build();
         PolicyEligibility withoutGender = baseEligibility().build();
 
-        PolicyEligibilityResult withResult = evaluator.evaluate(userProfile, nationalPolicy(), List.of(), withGender);
-        PolicyEligibilityResult withoutResult = evaluator.evaluate(userProfile, nationalPolicy(), List.of(), withoutGender);
+        PolicyEligibilityResult matchingResult =
+                evaluator.evaluate(userProfile, nationalPolicy(), List.of(), matchingGender);
+        PolicyEligibilityResult differentResult =
+                evaluator.evaluate(userProfile, nationalPolicy(), List.of(), differentGender);
+        PolicyEligibilityResult withoutResult =
+                evaluator.evaluate(userProfile, nationalPolicy(), List.of(), withoutGender);
 
-        assertThat(withResult.conditionResults()).anyMatch(r -> r.type() == ConditionType.GENDER
+        // 사용자 성별과 일치하는 조건이어도 값 비교 없이 항상 NEEDS_REVIEW로 처리됨(자동 판정 미지원)
+        assertThat(matchingResult.conditionResults()).anyMatch(r -> r.type() == ConditionType.GENDER
                 && r.status() == ConditionStatus.NEEDS_REVIEW);
-        assertThat(withResult.overallStatus()).isEqualTo(EligibilityStatus.NEEDS_REVIEW);
+        assertThat(matchingResult.overallStatus()).isEqualTo(EligibilityStatus.NEEDS_REVIEW);
+
+        assertThat(differentResult.conditionResults()).anyMatch(r -> r.type() == ConditionType.GENDER
+                && r.status() == ConditionStatus.NEEDS_REVIEW);
+        assertThat(differentResult.overallStatus()).isEqualTo(EligibilityStatus.NEEDS_REVIEW);
+
         assertThat(withoutResult.conditionResults()).noneMatch(r -> r.type() == ConditionType.GENDER);
     }
 
@@ -498,7 +510,7 @@ class PolicyEligibilityEvaluatorTest {
         return UserProfile.builder()
                 .birthDate(LocalDate.of(1998, 5, 14))
                 .region(seoulRegion)
-                .gender("F")
+                .gender(Gender.FEMALE)
                 .incomeType(IncomeType.MEDIAN_PERCENTAGE)
                 .incomeValue(80)
                 .employmentStatus(EmploymentStatus.JOB_SEEKER)
