@@ -1,8 +1,10 @@
 package com.mozip.server.global.exception;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.mozip.server.global.dto.ErrorResponse;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,6 +39,25 @@ public class GlobalExceptionHandler {
         );
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode.name(), errorCode.getDefaultMessage(), errors));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        ErrorCode errorCode = ErrorCode.INVALID_REQUEST;
+        List<ErrorResponse.FieldError> errors = extractInvalidFormatFieldError(e);
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ErrorResponse.of(errorCode.name(), errorCode.getDefaultMessage(), errors));
+    }
+
+    private List<ErrorResponse.FieldError> extractInvalidFormatFieldError(HttpMessageNotReadableException e) {
+        if (!(e.getCause() instanceof InvalidFormatException invalidFormatException)
+                || invalidFormatException.getPath().isEmpty()) {
+            return List.of();
+        }
+        String fieldName = invalidFormatException.getPath()
+                .get(invalidFormatException.getPath().size() - 1)
+                .getFieldName();
+        return List.of(new ErrorResponse.FieldError(fieldName, "요청 값의 형식이 올바르지 않습니다."));
     }
 
     @ExceptionHandler(Exception.class)

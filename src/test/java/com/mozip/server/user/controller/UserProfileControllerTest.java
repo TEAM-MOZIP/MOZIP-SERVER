@@ -1,5 +1,8 @@
 package com.mozip.server.user.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.containsStringIgnoringCase;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -120,6 +123,44 @@ class UserProfileControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.incomeValue").value(80));
+    }
+
+    @Test
+    void enum_필드에_허용되지_않은_값을_보내면_400이고_내부_정보를_노출하지_않는다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        String requestBody = "{"
+                + "\"birthDate\":\"1998-05-14\","
+                + "\"regionId\":3,"
+                + "\"gender\":\"F\","
+                + "\"incomeType\":\"NOT_A_REAL_VALUE\","
+                + "\"incomeValue\":80,"
+                + "\"employmentStatus\":\"JOB_SEEKER\","
+                + "\"householdType\":\"SINGLE\"}";
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("요청 값이 올바르지 않습니다."))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("incomeType"))
+                .andExpect(jsonPath("$.message", not(containsStringIgnoringCase("jackson"))))
+                .andExpect(jsonPath("$.message", not(containsString("MEDIAN_PERCENTAGE"))))
+                .andExpect(jsonPath("$.fieldErrors[0].reason", not(containsString("MEDIAN_PERCENTAGE"))));
+    }
+
+    @Test
+    void JSON_문법_자체가_잘못되면_400이다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        String malformedJson = "{\"birthDate\":\"1998-05-14\", this is not valid json";
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(malformedJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
