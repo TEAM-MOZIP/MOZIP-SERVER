@@ -7,6 +7,7 @@ import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
+import com.mozip.server.region.entity.Region;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -46,10 +47,18 @@ public class PolicySpecifications {
             return null;
         }
         return (root, query, cb) -> {
+            Subquery<Long> parentIdSubquery = query.subquery(Long.class);
+            Root<Region> regionRoot = parentIdSubquery.from(Region.class);
+            parentIdSubquery.select(regionRoot.get("parent").get("id"))
+                    .where(cb.equal(regionRoot.get("id"), regionId));
+
             Subquery<Long> subquery = query.subquery(Long.class);
             Root<PolicyRegion> policyRegion = subquery.from(PolicyRegion.class);
             subquery.select(policyRegion.get("policy").get("id"))
-                    .where(cb.equal(policyRegion.get("region").get("id"), regionId));
+                    .where(cb.or(
+                            cb.equal(policyRegion.get("region").get("id"), regionId),
+                            cb.equal(policyRegion.get("region").get("id"), parentIdSubquery)
+                    ));
             return cb.or(
                     cb.equal(root.get("regionScope"), RegionScope.NATIONAL),
                     root.get("id").in(subquery)
