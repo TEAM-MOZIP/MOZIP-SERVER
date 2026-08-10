@@ -10,6 +10,7 @@ import com.mozip.server.user.entity.UserProfile;
 import com.mozip.server.user.exception.UserNotFoundException;
 import com.mozip.server.user.exception.UserProfileAlreadyExistsException;
 import com.mozip.server.user.exception.UserProfileNotFoundException;
+import com.mozip.server.user.exception.UserRegionNotSelectableException;
 import com.mozip.server.user.repository.UserProfileRepository;
 import com.mozip.server.user.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +42,9 @@ public class UserProfileService {
     public UserProfileResponse upsertMyProfile(Long userId, UserProfileUpdateRequest request) {
         Region region = regionRepository.findById(request.regionId())
                 .orElseThrow(() -> new RegionNotFoundException(request.regionId()));
+        if (region.getParent() == null) {
+            throw new UserRegionNotSelectableException(request.regionId());
+        }
 
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .map(existing -> {

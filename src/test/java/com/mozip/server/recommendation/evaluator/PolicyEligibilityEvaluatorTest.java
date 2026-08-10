@@ -33,8 +33,9 @@ class PolicyEligibilityEvaluatorTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-23T00:00:00Z"), ZoneId.of("Asia/Seoul"));
     private final PolicyEligibilityEvaluator evaluator = new PolicyEligibilityEvaluator(clock);
 
-    private final Region seoulRegion = region(1L, "SEOUL", "서울특별시");
-    private final Region busanRegion = region(2L, "BUSAN", "부산광역시");
+    private final Region seoulRegion = region(1L, "SEOUL", "서울특별시", null);
+    private final Region mapoRegion = region(2L, "SEOUL_MAPO", "마포구", seoulRegion);
+    private final Region songpaRegion = region(3L, "SEOUL_SONGPA", "송파구", seoulRegion);
 
     @Test
     void Eligibility가_없으면_전체_NEEDS_REVIEW이고_조건_리스트는_비어있다() {
@@ -100,7 +101,7 @@ class PolicyEligibilityEvaluatorTest {
 
     @Test
     void 전국_정책이면_사용자_지역과_무관하게_MATCHED다() {
-        UserProfile userProfile = baseProfile().region(busanRegion).build();
+        UserProfile userProfile = baseProfile().region(songpaRegion).build();
         PolicyEligibility eligibility = baseEligibility().build();
 
         ConditionResult region = evaluateSingle(userProfile, nationalPolicy(), eligibility, ConditionType.REGION);
@@ -121,7 +122,43 @@ class PolicyEligibilityEvaluatorTest {
 
     @Test
     void 지역_정책이고_사용자_지역이_포함되지_않으면_NOT_MATCHED다() {
-        UserProfile userProfile = baseProfile().region(busanRegion).build();
+        UserProfile userProfile = baseProfile().region(songpaRegion).build();
+        Policy policy = regionalPolicy();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        PolicyEligibilityResult result = evaluator.evaluate(userProfile, policy, List.of(mapoRegion.getId()), eligibility);
+
+        assertThat(conditionOf(result, ConditionType.REGION).status()).isEqualTo(ConditionStatus.NOT_MATCHED);
+    }
+
+    @Test
+    void 사용자와_정책의_자치구가_같으면_MATCHED다() {
+        UserProfile userProfile = baseProfile().region(mapoRegion).build();
+        Policy policy = regionalPolicy();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        PolicyEligibilityResult result = evaluator.evaluate(userProfile, policy, List.of(mapoRegion.getId()), eligibility);
+
+        assertThat(conditionOf(result, ConditionType.REGION).status()).isEqualTo(ConditionStatus.MATCHED);
+    }
+
+    @Test
+    void 사용자_자치구의_상위가_정책_지역과_같으면_MATCHED다() {
+        UserProfile userProfile = baseProfile().region(mapoRegion).build();
+        Policy policy = regionalPolicy();
+        PolicyEligibility eligibility = baseEligibility().build();
+
+        PolicyEligibilityResult result = evaluator.evaluate(userProfile, policy, List.of(seoulRegion.getId()), eligibility);
+
+        assertThat(conditionOf(result, ConditionType.REGION).status()).isEqualTo(ConditionStatus.MATCHED);
+    }
+
+    @Test
+    void 조부모_지역까지는_탐색하지_않아_NOT_MATCHED다() {
+        // 계약상 존재하지 않는 가상의 3단계(CHILD_LEVEL_2 -> SEOUL_MAPO -> SEOUL)를 구성해
+        // 재귀적인 다단계 parent 탐색을 하지 않는다는 걸 고정한다.
+        Region childLevel2 = region(4L, "CHILD_LEVEL_2", "가상3단계지역", mapoRegion);
+        UserProfile userProfile = baseProfile().region(childLevel2).build();
         Policy policy = regionalPolicy();
         PolicyEligibility eligibility = baseEligibility().build();
 
@@ -539,8 +576,8 @@ class PolicyEligibilityEvaluatorTest {
                 .build();
     }
 
-    private Region region(Long id, String code, String name) {
-        Region region = Region.builder().code(code).name(name).build();
+    private Region region(Long id, String code, String name, Region parent) {
+        Region region = Region.builder().code(code).name(name).parent(parent).build();
         ReflectionTestUtils.setField(region, "id", id);
         return region;
     }
