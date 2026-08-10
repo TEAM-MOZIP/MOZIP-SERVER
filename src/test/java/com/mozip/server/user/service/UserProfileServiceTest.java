@@ -3,6 +3,7 @@ package com.mozip.server.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.mozip.server.region.entity.Region;
 import com.mozip.server.region.exception.RegionNotFoundException;
 import com.mozip.server.region.repository.RegionRepository;
 import com.mozip.server.user.dto.UserProfileResponse;
@@ -13,8 +14,10 @@ import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.OAuthProvider;
 import com.mozip.server.user.entity.User;
+import com.mozip.server.user.entity.UserProfile;
 import com.mozip.server.user.exception.UserProfileAlreadyExistsException;
 import com.mozip.server.user.exception.UserProfileNotFoundException;
+import com.mozip.server.user.exception.UserRegionNotSelectableException;
 import com.mozip.server.user.repository.UserProfileRepository;
 import com.mozip.server.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -53,7 +56,7 @@ class UserProfileServiceTest {
     @Test
     void 프로필이_없으면_최초_등록된다() {
         User user = createUser("profile-new@example.com", "profile-new-1");
-        Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
+        Long regionId = selectableRegionId();
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
                 LocalDate.of(1998, 5, 14), regionId, Gender.MALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
@@ -71,7 +74,7 @@ class UserProfileServiceTest {
     @Test
     void 이미_프로필이_있으면_수정된다() {
         User user = createUser("profile-update@example.com", "profile-update-1");
-        Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
+        Long regionId = selectableRegionId();
         userProfileService.upsertMyProfile(user.getId(), new UserProfileUpdateRequest(
                 LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
@@ -109,10 +112,48 @@ class UserProfileServiceTest {
     }
 
     @Test
+    void 상위_Region을_사용자_지역으로_선택하면_예외가_발생한다() {
+        User user = createUser("profile-topregion@example.com", "profile-topregion-1");
+        Region topLevelRegion = regionRepository.save(Region.builder()
+                .code("USERPROFILE_TEST_TOPLEVEL")
+                .name("최상위테스트지역")
+                .build());
+        UserProfileUpdateRequest request = new UserProfileUpdateRequest(
+                LocalDate.of(1998, 5, 14), topLevelRegion.getId(), Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
+                EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
+        );
+
+        assertThatThrownBy(() -> userProfileService.upsertMyProfile(user.getId(), request))
+                .isInstanceOf(UserRegionNotSelectableException.class);
+    }
+
+    @Test
+    void region이_null인_프로필도_예외_없이_조회된다() {
+        User user = createUser("profile-nullregion@example.com", "profile-nullregion-1");
+        userProfileRepository.save(UserProfile.builder()
+                .user(user)
+                .birthDate(LocalDate.of(1998, 5, 14))
+                .region(null)
+                .gender(Gender.FEMALE)
+                .incomeType(IncomeType.MEDIAN_PERCENTAGE)
+                .incomeValue(80)
+                .employmentStatus(EmploymentStatus.JOB_SEEKER)
+                .householdType(HouseholdType.SINGLE)
+                .build());
+
+        UserProfileResponse response = userProfileService.getMyProfile(user.getId());
+
+        assertThat(response.regionId()).isNull();
+        assertThat(response.regionName()).isNull();
+        assertThat(response.gender()).isEqualTo(Gender.FEMALE);
+        assertThat(response.incomeValue()).isEqualTo(80);
+    }
+
+    @Test
     void 서로_다른_사용자의_프로필은_독립적으로_관리된다() {
         User userA = createUser("profile-a@example.com", "profile-a-1");
         User userB = createUser("profile-b@example.com", "profile-b-1");
-        Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
+        Long regionId = selectableRegionId();
 
         userProfileService.upsertMyProfile(userA.getId(), new UserProfileUpdateRequest(
                 LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
@@ -127,7 +168,7 @@ class UserProfileServiceTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void 동일_사용자가_동시에_최초_프로필을_등록하면_하나만_성공한다() throws Exception {
         User user = createUser("profile-concurrent@example.com", "profile-concurrent-1");
-        Long regionId = regionRepository.findAll().stream().findFirst().orElseThrow().getId();
+        Long regionId = selectableRegionId();
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
                 LocalDate.of(1998, 5, 14), regionId, Gender.FEMALE, IncomeType.MEDIAN_PERCENTAGE, 80,
                 EmploymentStatus.JOB_SEEKER, HouseholdType.SINGLE
@@ -181,5 +222,13 @@ class UserProfileServiceTest {
                 .provider(OAuthProvider.KAKAO)
                 .providerUserId(providerUserId)
                 .build());
+    }
+
+    private Long selectableRegionId() {
+        return regionRepository.findAll().stream()
+                .filter(region -> region.getParent() != null)
+                .findFirst()
+                .orElseThrow()
+                .getId();
     }
 }
