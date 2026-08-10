@@ -117,6 +117,10 @@ public class PolicyEligibilityEvaluator {
         if (policyRegionIds.contains(userRegion.getId())) {
             return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "지역 조건을 충족합니다.");
         }
+        Region userRegionParent = userRegion.getParent();
+        if (userRegionParent != null && policyRegionIds.contains(userRegionParent.getId())) {
+            return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "지역 조건을 충족합니다.");
+        }
         return new ConditionResult(ConditionType.REGION, ConditionStatus.NOT_MATCHED, "정책 지원 지역과 일치하지 않습니다.");
     }
 
