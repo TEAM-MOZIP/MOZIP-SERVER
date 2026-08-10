@@ -23,6 +23,7 @@ import com.mozip.server.user.entity.Gender;
 import com.mozip.server.user.entity.HouseholdType;
 import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.exception.UserProfileAlreadyExistsException;
+import com.mozip.server.user.exception.UserRegionNotSelectableException;
 import com.mozip.server.user.service.UserProfileService;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -208,6 +209,21 @@ class UserProfileControllerTest {
                         .content(malformedJson))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void 사용자_지역으로_선택할_수_없는_지역이면_400이다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        UserProfileUpdateRequest request = validRequest();
+        when(userProfileService.upsertMyProfile(eq(1L), any()))
+                .thenThrow(new UserRegionNotSelectableException(request.regionId()));
+
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("USER_REGION_NOT_SELECTABLE"));
     }
 
     @Test
