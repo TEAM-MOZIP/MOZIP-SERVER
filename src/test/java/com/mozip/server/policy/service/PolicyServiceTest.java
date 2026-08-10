@@ -18,12 +18,15 @@ import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
+import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
 import com.mozip.server.policy.repository.CategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
+import com.mozip.server.region.entity.Region;
+import com.mozip.server.region.repository.RegionRepository;
 import com.mozip.server.user.entity.OAuthProvider;
 import com.mozip.server.user.entity.User;
 import com.mozip.server.user.repository.UserRepository;
@@ -63,6 +66,9 @@ class PolicyServiceTest {
     private CategoryRepository categoryRepository;
 
     @Autowired
+    private RegionRepository regionRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Test
@@ -80,6 +86,29 @@ class PolicyServiceTest {
                 .isEqualTo(PolicyAvailability.AVAILABLE);
         assertThat(findById(response, unavailablePolicy.getId()).availability().status())
                 .isEqualTo(PolicyAvailability.UNAVAILABLE);
+    }
+
+    @Test
+    void 자치구로_검색하면_같은_자치구_정책과_상위_SEOUL_정책이_포함되고_다른_자치구_정책은_제외된다() {
+        Region seoul = regionRepository.save(Region.builder().code("PSPEC_TEST_SEOUL").name("검색테스트서울").build());
+        Region mapo = regionRepository.save(
+                Region.builder().code("PSPEC_TEST_MAPO").name("검색테스트마포").parent(seoul).build());
+        Region songpa = regionRepository.save(
+                Region.builder().code("PSPEC_TEST_SONGPA").name("검색테스트송파").parent(seoul).build());
+
+        Policy mapoPolicy = createRegionalPolicy(KEYWORD + "-마포정책");
+        linkRegion(mapoPolicy, mapo);
+        Policy seoulWidePolicy = createRegionalPolicy(KEYWORD + "-서울전체정책");
+        linkRegion(seoulWidePolicy, seoul);
+        Policy songpaPolicy = createRegionalPolicy(KEYWORD + "-송파정책");
+        linkRegion(songpaPolicy, songpa);
+
+        PageResponse<PolicySummaryResponse> response = policyService.searchPolicies(
+                new PolicySearchRequest(KEYWORD, null, mapo.getId(), null, null), PageRequest.of(0, 20));
+
+        List<Long> ids = response.content().stream().map(PolicySummaryResponse::id).toList();
+        assertThat(ids).contains(mapoPolicy.getId(), seoulWidePolicy.getId());
+        assertThat(ids).doesNotContain(songpaPolicy.getId());
     }
 
     @Test
@@ -433,5 +462,26 @@ class PolicyServiceTest {
 
     private void linkCategory(Policy policy, Category category) {
         entityManager.persist(PolicyCategory.builder().policy(policy).category(category).build());
+    }
+
+    private Policy createRegionalPolicy(String title) {
+        Organization organization = Organization.builder()
+                .name("테스트기관")
+                .type("중앙부처")
+                .build();
+        entityManager.persist(organization);
+
+        Policy policy = Policy.builder()
+                .organization(organization)
+                .title(title)
+                .applicationType(ApplicationType.ALWAYS)
+                .regionScope(RegionScope.REGIONAL)
+                .status(PolicyStatus.ALWAYS_OPEN)
+                .build();
+        return policyRepository.save(policy);
+    }
+
+    private void linkRegion(Policy policy, Region region) {
+        entityManager.persist(PolicyRegion.builder().policy(policy).region(region).build());
     }
 }
