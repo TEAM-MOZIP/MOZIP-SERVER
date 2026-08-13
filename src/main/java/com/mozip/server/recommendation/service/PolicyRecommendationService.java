@@ -1,5 +1,6 @@
 package com.mozip.server.recommendation.service;
 
+import com.mozip.server.ai.service.SemanticMatchService;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
@@ -9,6 +10,7 @@ import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
+import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.repository.PolicyCategoryRepository;
@@ -51,6 +53,7 @@ public class PolicyRecommendationService {
     private final PolicyCategoryRepository policyCategoryRepository;
     private final PolicyEligibilityEvaluator policyEligibilityEvaluator;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
+    private final SemanticMatchService semanticMatchService;
 
     public PolicyRecommendationService(UserProfileRepository userProfileRepository, PolicyRepository policyRepository,
                                         PolicyEligibilityRepository policyEligibilityRepository,
@@ -58,7 +61,8 @@ public class PolicyRecommendationService {
                                         BookmarkRepository bookmarkRepository,
                                         PolicyCategoryRepository policyCategoryRepository,
                                         PolicyEligibilityEvaluator policyEligibilityEvaluator,
-                                        PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
+                                        PolicyAvailabilityEvaluator policyAvailabilityEvaluator,
+                                        SemanticMatchService semanticMatchService) {
         this.userProfileRepository = userProfileRepository;
         this.policyRepository = policyRepository;
         this.policyEligibilityRepository = policyEligibilityRepository;
@@ -67,6 +71,7 @@ public class PolicyRecommendationService {
         this.policyCategoryRepository = policyCategoryRepository;
         this.policyEligibilityEvaluator = policyEligibilityEvaluator;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
+        this.semanticMatchService = semanticMatchService;
     }
 
     public PageResponse<PolicyRecommendationResponse> getRecommendations(Long userId, PolicySearchRequest condition,
@@ -82,7 +87,7 @@ public class PolicyRecommendationService {
                         .toList()
                 : candidates;
 
-        return toPageResponse(filteredCandidates, userId, pageable);
+        return toPageResponse(filteredCandidates, userProfile, userId, pageable);
     }
 
     public List<PolicyPackageResponse> getPackages(Long userId) {
@@ -112,7 +117,7 @@ public class PolicyRecommendationService {
                 .map(entry -> PolicyPackageResponse.from(entry.getKey(),
                         entry.getValue().stream()
                                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
-                                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId())))
+                                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()), null))
                                 .toList()))
                 .toList();
     }
@@ -166,7 +171,7 @@ public class PolicyRecommendationService {
     }
 
     private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,
-                                                                        Long userId, Pageable pageable) {
+                                                                        UserProfile userProfile, Long userId, Pageable pageable) {
         int totalElements = candidates.size();
         int size = pageable.getPageSize();
         int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
@@ -180,15 +185,39 @@ public class PolicyRecommendationService {
         Set<Long> bookmarkedPolicyIds = pagePolicyIds.isEmpty()
                 ? Set.of()
                 : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, pagePolicyIds));
+        Map<Long, Double> semanticScoreByPolicyId = getSemanticScores(userProfile, pageContent);
 
         List<PolicyRecommendationResponse> content = pageContent.stream()
                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
-                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId())))
+                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()),
+                        semanticScoreByPolicyId.get(candidate.policy().getId())))
                 .toList();
 
         boolean first = pageable.getPageNumber() == 0;
         boolean last = pageable.getPageNumber() >= totalPages - 1;
 
         return new PageResponse<>(content, pageable.getPageNumber(), size, totalElements, totalPages, first, last);
+    }
+
+    private Map<Long, Double> getSemanticScores(UserProfile userProfile, List<PolicyRecommendationCandidate> pageContent) {
+        List<Policy> pagePolicies = pageContent.stream().map(PolicyRecommendationCandidate::policy).toList();
+        if (pagePolicies.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> pagePolicyIds = pagePolicies.stream().map(Policy::getId).toList();
+        Map<Long, PolicyEligibility> eligibilityByPolicyId = policyEligibilityRepository.findByPolicyIdIn(pagePolicyIds).stream()
+                .collect(Collectors.toMap(eligibility -> eligibility.getPolicy().getId(), Function.identity()));
+
+        List<Long> regionalPagePolicyIds = pagePolicies.stream()
+                .filter(policy -> policy.getRegionScope() == RegionScope.REGIONAL)
+                .map(Policy::getId)
+                .toList();
+        Map<Long, List<PolicyRegion>> policyRegionsByPolicyId = regionalPagePolicyIds.isEmpty()
+                ? Map.of()
+                : policyRegionRepository.findByPolicyIdIn(regionalPagePolicyIds).stream()
+                        .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId()));
+
+        return semanticMatchService.matchScores(userProfile, pagePolicies, eligibilityByPolicyId, policyRegionsByPolicyId);
     }
 }
