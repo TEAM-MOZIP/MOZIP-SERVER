@@ -14,3 +14,8 @@ spring:
 notification:
   scheduling:
     enabled: false
+
+mozip:
+  ai:
+    base-url: ${MOZIP_AI_BASE_URL:http://localhost:8000}
+    timeout-seconds: ${MOZIP_AI_TIMEOUT_SECONDS:3}
