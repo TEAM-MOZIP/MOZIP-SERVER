@@ -15,11 +15,13 @@ public record PolicyRecommendationResponse(
         LocalDate applicationEndDate,
         PolicyEvaluationResponse.EligibilityResponse eligibility,
         PolicyEvaluationResponse.AvailabilityResponse availability,
-        boolean bookmarked
+        boolean bookmarked,
+        Double semanticScore
 ) {
 
     public static PolicyRecommendationResponse from(Policy policy, PolicyEligibilityResult eligibilityResult,
-                                                      PolicyAvailabilityResult availabilityResult, boolean bookmarked) {
+                                                      PolicyAvailabilityResult availabilityResult, boolean bookmarked,
+                                                      Double semanticScore) {
         return new PolicyRecommendationResponse(
                 policy.getId(),
                 policy.getTitle(),
@@ -29,7 +31,8 @@ public record PolicyRecommendationResponse(
                 policy.getApplicationEndDate(),
                 PolicyEvaluationResponse.EligibilityResponse.from(eligibilityResult),
                 PolicyEvaluationResponse.AvailabilityResponse.from(availabilityResult),
-                bookmarked
+                bookmarked,
+                semanticScore
         );
     }
 }

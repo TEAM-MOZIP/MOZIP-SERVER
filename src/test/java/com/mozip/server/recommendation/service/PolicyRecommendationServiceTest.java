@@ -4,10 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.mozip.server.ai.client.SemanticMatchClient;
+import com.mozip.server.ai.dto.SemanticMatchRequest;
+import com.mozip.server.ai.dto.SemanticMatchResponse;
+import com.mozip.server.ai.dto.SemanticMatchResult;
 import com.mozip.server.bookmark.entity.Bookmark;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
@@ -43,14 +49,17 @@ import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.ResourceAccessException;
 
 @SpringBootTest
 @ActiveProfiles("local")
@@ -86,8 +95,18 @@ class PolicyRecommendationServiceTest {
     @MockitoSpyBean
     private BookmarkRepository bookmarkRepository;
 
+    @MockitoBean
+    private SemanticMatchClient semanticMatchClient;
+
     @Autowired
     private EntityManager entityManager;
+
+    @BeforeEach
+    void stubSemanticMatchClientAsUnreachableByDefault() {
+        // AI 서버가 없는 테스트 환경을 기본값으로 두어, 이 필드를 stub하지 않는 기존 테스트들이
+        // 전부 "AI 호출 실패 → semanticScore null → 기존 추천 결과 유지" 경로를 그대로 타게 한다.
+        doThrow(new ResourceAccessException("AI 서버에 연결할 수 없습니다")).when(semanticMatchClient).match(any());
+    }
 
     @Test
     void 여러_정책의_eligibility와_availability가_정책_ID별로_정확히_매핑된다() {
@@ -303,6 +322,7 @@ class PolicyRecommendationServiceTest {
         assertThat(response.first()).isTrue();
         assertThat(response.last()).isTrue();
         verify(bookmarkRepository, never()).findBookmarkedPolicyIds(any(), any());
+        verify(semanticMatchClient, never()).match(any());
     }
 
     @Test
@@ -508,6 +528,138 @@ class PolicyRecommendationServiceTest {
 
         assertThatThrownBy(() -> policyRecommendationService.getPackages(user.getId()))
                 .isInstanceOf(UserProfileNotFoundException.class);
+    }
+
+    @Test
+    void AI가_정상_응답하면_policyId_기준으로_semanticScore가_응답에_포함된다() {
+        User user = createUser("semantic-success@example.com", "semantic-success-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy policyA = createPolicy(KEYWORD + "-semantic성공A", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policyA).build());
+        Policy policyB = createPolicy(KEYWORD + "-semantic성공B", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policyB).build());
+        // eligibility가 동일해 Comparator tie-break(createdAt 역순)상 최종 응답 순서는 policyB, policyA 순이 된다.
+        // AI 응답 순서는 일부러 policyA, policyB로 반대로 둬서, 배열 index로 잘못 매핑하면
+        // policyA/policyB의 semanticScore가 서로 뒤바뀌어 아래 assertion이 실패하게 만든다.
+        doReturn(new SemanticMatchResponse(List.of(
+                new SemanticMatchResult(policyA.getId(), 0.8, List.of(), List.of()),
+                new SemanticMatchResult(policyB.getId(), 0.0, List.of(), List.of())
+        ))).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic성공", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        assertThat(findByPolicyId(response, policyA.getId()).semanticScore()).isEqualTo(0.8);
+        assertThat(findByPolicyId(response, policyB.getId()).semanticScore()).isEqualTo(0.0);
+    }
+
+    @Test
+    void AI_응답에_특정_policyId_결과가_없으면_해당_정책의_semanticScore는_null이다() {
+        User user = createUser("semantic-missing@example.com", "semantic-missing-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy withResult = createPolicy(KEYWORD + "-semantic누락있음", RegionScope.NATIONAL);
+        Policy withoutResult = createPolicy(KEYWORD + "-semantic누락없음", RegionScope.NATIONAL);
+        doReturn(new SemanticMatchResponse(List.of(
+                new SemanticMatchResult(withResult.getId(), 0.5, List.of(), List.of())
+        ))).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic누락", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        assertThat(findByPolicyId(response, withResult.getId()).semanticScore()).isEqualTo(0.5);
+        assertThat(findByPolicyId(response, withoutResult.getId()).semanticScore()).isNull();
+    }
+
+    @Test
+    void AI_호출이_실패해도_기존_추천_결과와_정렬_순서가_그대로_유지된다() {
+        User user = createUser("semantic-failure@example.com", "semantic-failure-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy ineligiblePolicy = createPolicy(KEYWORD + "-semantic실패-부적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
+        Policy eligiblePolicy = createPolicy(KEYWORD + "-semantic실패-적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
+        doThrow(new ResourceAccessException("연결 실패")).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic실패", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
+                .containsExactly(eligiblePolicy.getId(), ineligiblePolicy.getId());
+        assertThat(response.content()).allMatch(item -> item.semanticScore() == null);
+    }
+
+    @Test
+    void 페이지에_노출되는_정책이_여러_건이어도_semantic_match_batch_호출은_한_번만_수행된다() {
+        User user = createUser("semantic-batch@example.com", "semantic-batch-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        createPolicy(KEYWORD + "-semantic배치1", RegionScope.NATIONAL);
+        createPolicy(KEYWORD + "-semantic배치2", RegionScope.NATIONAL);
+        createPolicy(KEYWORD + "-semantic배치3", RegionScope.NATIONAL);
+
+        policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic배치", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        verify(semanticMatchClient, times(1)).match(any());
+    }
+
+    @Test
+    void REGIONAL_정책의_regionCode가_semantic_match_요청에_포함된다() {
+        User user = createUser("semantic-region@example.com", "semantic-region-1");
+        Region seoul = regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울");
+        createProfile(user, seoul);
+        Policy regionalPolicy = createPolicy(KEYWORD + "-semantic지역", RegionScope.REGIONAL);
+        policyRegionRepository.save(PolicyRegion.builder().policy(regionalPolicy).region(seoul).build());
+        doReturn(new SemanticMatchResponse(List.of())).when(semanticMatchClient).match(any());
+
+        policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic지역", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        ArgumentCaptor<SemanticMatchRequest> requestCaptor = ArgumentCaptor.forClass(SemanticMatchRequest.class);
+        verify(semanticMatchClient).match(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().policies()).filteredOn(p -> p.policyId().equals(regionalPolicy.getId()))
+                .extracting(p -> p.regionCodes())
+                .containsExactly(List.of(seoul.getCode()));
+    }
+
+    @Test
+    void PolicyEligibility가_없는_정책도_semantic_match_대상에서_제외되지_않는다() {
+        User user = createUser("semantic-no-eligibility@example.com", "semantic-no-eligibility-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy policy = createPolicy(KEYWORD + "-semantic자격없음", RegionScope.NATIONAL);
+        doReturn(new SemanticMatchResponse(List.of(
+                new SemanticMatchResult(policy.getId(), 0.3, List.of(), List.of())
+        ))).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic자격없음", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        ArgumentCaptor<SemanticMatchRequest> requestCaptor = ArgumentCaptor.forClass(SemanticMatchRequest.class);
+        verify(semanticMatchClient).match(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().policies()).extracting(p -> p.policyId()).contains(policy.getId());
+        assertThat(findByPolicyId(response, policy.getId()).semanticScore()).isEqualTo(0.3);
+    }
+
+    @Test
+    void getPackages는_semantic_match를_호출하지_않고_semanticScore는_null이다() {
+        User user = createUser("semantic-packages@example.com", "semantic-packages-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Category category = createCategory("PKG_REC_SEMANTIC", KEYWORD + "-semantic패키지카테고리");
+        Policy policy = createPolicy(KEYWORD + "-semantic패키지", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).build());
+        linkCategory(policy, category);
+
+        List<PolicyPackageResponse> packages = policyRecommendationService.getPackages(user.getId());
+
+        PolicyPackageResponse matched = findByCategoryId(packages, category.getId());
+        assertThat(matched.policies()).extracting(PolicyRecommendationResponse::semanticScore)
+                .containsOnlyNulls();
+        verify(semanticMatchClient, never()).match(any());
     }
 
     private PolicyPackageResponse findByCategoryId(List<PolicyPackageResponse> packages, Long categoryId) {
