@@ -27,6 +27,7 @@ import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import java.time.LocalDate;
 import java.util.List;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,7 +68,8 @@ class PolicyRecommendationControllerTest {
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
                         PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
-                true
+                true,
+                null
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true);
         when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
@@ -87,6 +89,41 @@ class PolicyRecommendationControllerTest {
     }
 
     @Test
+    void semanticScore가_있는_정책과_없는_정책이_각각_JSON에_정확히_노출된다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyRecommendationResponse withScore = new PolicyRecommendationResponse(
+                1L, "청년내일채움공제", "고용노동부",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyEvaluationResponse.EligibilityResponse(
+                        EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
+                new PolicyEvaluationResponse.AvailabilityResponse(
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
+                true,
+                0.8
+        );
+        PolicyRecommendationResponse withoutScore = new PolicyRecommendationResponse(
+                2L, "국민취업지원제도", "고용노동부",
+                ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
+                new PolicyEvaluationResponse.EligibilityResponse(
+                        EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
+                new PolicyEvaluationResponse.AvailabilityResponse(
+                        PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
+                false,
+                null
+        );
+        PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(
+                List.of(withScore, withoutScore), 0, 20, 2, 1, true, true);
+        when(policyRecommendationService.getRecommendations(eq(1L), any(PolicySearchRequest.class), anyBoolean(), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/recommendations/policies")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].semanticScore").value(0.8))
+                .andExpect(jsonPath("$.content[1].semanticScore").value(Matchers.nullValue()));
+    }
+
+    @Test
     void 북마크된_정책과_북마크되지_않은_정책이_함께_있으면_각각_다르게_직렬화된다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
         PolicyRecommendationResponse bookmarkedItem = new PolicyRecommendationResponse(
@@ -96,7 +133,8 @@ class PolicyRecommendationControllerTest {
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
                         PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false),
-                true
+                true,
+                null
         );
         PolicyRecommendationResponse notBookmarkedItem = new PolicyRecommendationResponse(
                 2L, "국민취업지원제도", "고용노동부",
@@ -105,7 +143,8 @@ class PolicyRecommendationControllerTest {
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
                         PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false),
-                false
+                false,
+                null
         );
         PageResponse<PolicyRecommendationResponse> page = new PageResponse<>(
                 List.of(bookmarkedItem, notBookmarkedItem), 0, 20, 2, 1, true, true);
@@ -182,7 +221,8 @@ class PolicyRecommendationControllerTest {
                         EligibilityStatus.ELIGIBLE, "모든 자동 판정 조건을 충족했습니다.", List.of()),
                 new PolicyEvaluationResponse.AvailabilityResponse(
                         PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, true),
-                true
+                true,
+                null
         );
         PolicyPackageResponse packageResponse = new PolicyPackageResponse(1L, "청년정책", List.of(item));
         when(policyRecommendationService.getPackages(1L)).thenReturn(List.of(packageResponse));
