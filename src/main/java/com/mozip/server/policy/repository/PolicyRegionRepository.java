@@ -12,6 +12,6 @@ public interface PolicyRegionRepository extends JpaRepository<PolicyRegion, Poli
     @Query("SELECT pr.region.id FROM PolicyRegion pr WHERE pr.policy.id = :policyId")
     List<Long> findRegionIdsByPolicyId(@Param("policyId") Long policyId);
 
-    @Query("SELECT pr FROM PolicyRegion pr WHERE pr.policy.id IN :policyIds")
+    @Query("SELECT pr FROM PolicyRegion pr JOIN FETCH pr.region WHERE pr.policy.id IN :policyIds")
     List<PolicyRegion> findByPolicyIdIn(@Param("policyIds") List<Long> policyIds);
 }
