@@ -95,8 +95,77 @@ class PolicyRecommendationComparatorTest {
         assertThat(comparator.compare(smallerId, largerId)).isNegative();
     }
 
+    @Test
+    void 같은_tier에서는_semanticScore가_높은_정책이_우선한다() {
+        PolicyRecommendationCandidate higherScore =
+                candidate(1L, EligibilityStatus.NEEDS_REVIEW, 0.8, null, null);
+        PolicyRecommendationCandidate lowerScore =
+                candidate(2L, EligibilityStatus.NEEDS_REVIEW, 0.5, null, null);
+
+        assertThat(comparator.compare(higherScore, lowerScore)).isNegative();
+    }
+
+    @Test
+    void semanticScore가_높아도_eligibility_tier를_뒤집지_못한다() {
+        PolicyRecommendationCandidate eligibleLowScore =
+                candidate(1L, EligibilityStatus.ELIGIBLE, 0.2, null, null);
+        PolicyRecommendationCandidate needsReviewHighScore =
+                candidate(2L, EligibilityStatus.NEEDS_REVIEW, 1.0, null, null);
+
+        assertThat(comparator.compare(eligibleLowScore, needsReviewHighScore)).isNegative();
+    }
+
+    @Test
+    void semanticScore가_같으면_기존_applicationEndDate_기준으로_넘어간다() {
+        PolicyRecommendationCandidate earlier =
+                candidate(1L, EligibilityStatus.ELIGIBLE, 0.7, LocalDate.of(2026, 8, 1), null);
+        PolicyRecommendationCandidate later =
+                candidate(2L, EligibilityStatus.ELIGIBLE, 0.7, LocalDate.of(2026, 9, 1), null);
+
+        assertThat(comparator.compare(earlier, later)).isNegative();
+    }
+
+    @Test
+    void 같은_tier에서_semanticScore가_있는_정책이_null보다_우선한다() {
+        PolicyRecommendationCandidate hasScore =
+                candidate(1L, EligibilityStatus.NEEDS_REVIEW, 0.5, null, null);
+        PolicyRecommendationCandidate nullScore =
+                candidate(2L, EligibilityStatus.NEEDS_REVIEW, null, null, null);
+
+        assertThat(comparator.compare(hasScore, nullScore)).isNegative();
+    }
+
+    @Test
+    void semanticScore가_모두_null이면_기존_applicationEndDate_createdAt_id_순서를_그대로_따른다() {
+        // A-4 이전(semanticScore 필드 자체가 없던 시절) Comparator와 동일한 입력에 대해
+        // 완전히 동일한 순서를 내는지 확인한다 — AI 전체 실패로 모든 score가 null이 되는 상황의 근거.
+        LocalDateTime earlierCreatedAt = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime laterCreatedAt = LocalDateTime.of(2026, 1, 2, 0, 0);
+
+        PolicyRecommendationCandidate ineligible =
+                candidate(4L, EligibilityStatus.INELIGIBLE, null, null, null);
+        PolicyRecommendationCandidate needsReview =
+                candidate(3L, EligibilityStatus.NEEDS_REVIEW, null, null, null);
+        PolicyRecommendationCandidate laterDeadline =
+                candidate(1L, EligibilityStatus.ELIGIBLE, null, LocalDate.of(2026, 9, 1), laterCreatedAt);
+        PolicyRecommendationCandidate earlierDeadlineOlder =
+                candidate(2L, EligibilityStatus.ELIGIBLE, null, LocalDate.of(2026, 8, 1), earlierCreatedAt);
+
+        List<PolicyRecommendationCandidate> sorted =
+                List.of(ineligible, laterDeadline, needsReview, earlierDeadlineOlder).stream()
+                        .sorted(comparator)
+                        .toList();
+
+        assertThat(sorted).containsExactly(earlierDeadlineOlder, laterDeadline, needsReview, ineligible);
+    }
+
     private PolicyRecommendationCandidate candidate(Long id, EligibilityStatus status, LocalDate applicationEndDate,
                                                       LocalDateTime createdAt) {
+        return candidate(id, status, null, applicationEndDate, createdAt);
+    }
+
+    private PolicyRecommendationCandidate candidate(Long id, EligibilityStatus status, Double semanticScore,
+                                                      LocalDate applicationEndDate, LocalDateTime createdAt) {
         Policy policy = Policy.builder()
                 .title("테스트 정책 " + id)
                 .applicationType(ApplicationType.PERIOD)
@@ -112,6 +181,6 @@ class PolicyRecommendationComparatorTest {
                 new PolicyAvailabilityResult(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
                         false);
 
-        return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult);
+        return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult, semanticScore);
     }
 }
