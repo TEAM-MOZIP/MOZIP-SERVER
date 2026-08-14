@@ -538,9 +538,6 @@ class PolicyRecommendationServiceTest {
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(policyA).build());
         Policy policyB = createPolicy(KEYWORD + "-semantic성공B", RegionScope.NATIONAL);
         policyEligibilityRepository.save(PolicyEligibility.builder().policy(policyB).build());
-        // eligibility가 동일해 Comparator tie-break(createdAt 역순)상 최종 응답 순서는 policyB, policyA 순이 된다.
-        // AI 응답 순서는 일부러 policyA, policyB로 반대로 둬서, 배열 index로 잘못 매핑하면
-        // policyA/policyB의 semanticScore가 서로 뒤바뀌어 아래 assertion이 실패하게 만든다.
         doReturn(new SemanticMatchResponse(List.of(
                 new SemanticMatchResult(policyA.getId(), 0.8, List.of(), List.of()),
                 new SemanticMatchResult(policyB.getId(), 0.0, List.of(), List.of())
@@ -570,6 +567,9 @@ class PolicyRecommendationServiceTest {
 
         assertThat(findByPolicyId(response, withResult.getId()).semanticScore()).isEqualTo(0.5);
         assertThat(findByPolicyId(response, withoutResult.getId()).semanticScore()).isNull();
+        // 같은 tier(둘 다 NEEDS_REVIEW) 안에서는 semanticScore가 있는 정책이 null인 정책보다 먼저 와야 한다.
+        assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
+                .containsExactly(withResult.getId(), withoutResult.getId());
     }
 
     @Test
@@ -643,6 +643,91 @@ class PolicyRecommendationServiceTest {
         verify(semanticMatchClient).match(requestCaptor.capture());
         assertThat(requestCaptor.getValue().policies()).extracting(p -> p.policyId()).contains(policy.getId());
         assertThat(findByPolicyId(response, policy.getId()).semanticScore()).isEqualTo(0.3);
+    }
+
+    @Test
+    void semantic_match_batch는_현재_페이지가_아니라_필터링된_전체_후보를_대상으로_호출된다() {
+        User user = createUser("semantic-full-batch@example.com", "semantic-full-batch-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy policy1 = createPolicy(KEYWORD + "-semantic전체1", RegionScope.NATIONAL);
+        Policy policy2 = createPolicy(KEYWORD + "-semantic전체2", RegionScope.NATIONAL);
+        Policy policy3 = createPolicy(KEYWORD + "-semantic전체3", RegionScope.NATIONAL);
+        doReturn(new SemanticMatchResponse(List.of())).when(semanticMatchClient).match(any());
+
+        // 페이지 크기를 1로 줘서 실제 응답에는 1건만 노출되지만, AI에는 필터링된 후보 3건 전부가 전달돼야 한다.
+        policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic전체", null, null, null, null), false,
+                PageRequest.of(0, 1));
+
+        ArgumentCaptor<SemanticMatchRequest> requestCaptor = ArgumentCaptor.forClass(SemanticMatchRequest.class);
+        verify(semanticMatchClient, times(1)).match(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().policies()).extracting(p -> p.policyId())
+                .containsExactlyInAnyOrder(policy1.getId(), policy2.getId(), policy3.getId());
+    }
+
+    @Test
+    void AI_응답_배열_순서가_후보_순서와_달라도_policyId_기준으로_정확히_정렬된다() {
+        User user = createUser("semantic-order@example.com", "semantic-order-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        Policy higherScorePolicy = createPolicy(KEYWORD + "-semantic순서높음", RegionScope.NATIONAL);
+        Policy lowerScorePolicy = createPolicy(KEYWORD + "-semantic순서낮음", RegionScope.NATIONAL);
+        // AI 응답 배열은 일부러 낮은 점수(lowerScorePolicy) 먼저, 높은 점수(higherScorePolicy) 나중에 오도록 구성한다.
+        // index 기반으로 잘못 병합하면 점수가 서로 뒤바뀌어 최종 정렬 순서가 반대로 나오게 된다.
+        doReturn(new SemanticMatchResponse(List.of(
+                new SemanticMatchResult(lowerScorePolicy.getId(), 0.2, List.of(), List.of()),
+                new SemanticMatchResult(higherScorePolicy.getId(), 0.9, List.of(), List.of())
+        ))).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic순서", null, null, null, null), false,
+                PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicyRecommendationResponse::policyId)
+                .containsExactly(higherScorePolicy.getId(), lowerScorePolicy.getId());
+    }
+
+    @Test
+    void 같은_tier에서_score가_높은_정책이_먼저_오도록_페이지가_잘린다() {
+        User user = createUser("semantic-pagination@example.com", "semantic-pagination-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        // highScorePolicy를 먼저(=createdAt이 더 이름), lowScorePolicy를 나중에(=createdAt이 더 최신) 생성한다.
+        // semanticScore를 무시하면 기존 tie-breaker(createdAt DESC)만으로 lowScorePolicy가 먼저 오게 되므로,
+        // semanticScore가 실제로 정렬에 반영돼야만 highScorePolicy가 1페이지에 오는 구조다.
+        Policy highScorePolicy = createPolicy(KEYWORD + "-semantic페이지높음", RegionScope.NATIONAL);
+        Policy lowScorePolicy = createPolicy(KEYWORD + "-semantic페이지낮음", RegionScope.NATIONAL);
+        doReturn(new SemanticMatchResponse(List.of(
+                new SemanticMatchResult(lowScorePolicy.getId(), 0.2, List.of(), List.of()),
+                new SemanticMatchResult(highScorePolicy.getId(), 0.9, List.of(), List.of())
+        ))).when(semanticMatchClient).match(any());
+
+        PageResponse<PolicyRecommendationResponse> response = policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(KEYWORD + "-semantic페이지", null, null, null, null), false,
+                PageRequest.of(0, 1));
+
+        assertThat(response.content()).hasSize(1);
+        assertThat(response.content().get(0).policyId()).isEqualTo(highScorePolicy.getId());
+        assertThat(response.totalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void onlyEligible이_true면_필터링된_후보는_semantic_match_요청에_포함되지_않는다() {
+        User user = createUser("semantic-only-eligible@example.com", "semantic-only-eligible-1");
+        createProfile(user, regionOrCreate("RECOMMEND_TEST_SEOUL", "추천테스트서울"));
+        String sharedKeyword = KEYWORD + "-semantic적격필터";
+        Policy eligiblePolicy = createPolicy(sharedKeyword + "-적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(eligiblePolicy).build());
+        Policy ineligiblePolicy = createPolicy(sharedKeyword + "-부적격", RegionScope.NATIONAL);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ineligiblePolicy).minimumAge(200).build());
+        doReturn(new SemanticMatchResponse(List.of())).when(semanticMatchClient).match(any());
+
+        policyRecommendationService.getRecommendations(
+                user.getId(), new PolicySearchRequest(sharedKeyword, null, null, null, null), true,
+                PageRequest.of(0, 20));
+
+        ArgumentCaptor<SemanticMatchRequest> requestCaptor = ArgumentCaptor.forClass(SemanticMatchRequest.class);
+        verify(semanticMatchClient, times(1)).match(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().policies()).extracting(p -> p.policyId())
+                .containsExactly(eligiblePolicy.getId());
     }
 
     @Test
