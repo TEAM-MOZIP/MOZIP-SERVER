@@ -8,6 +8,8 @@ public class PolicyRecommendationComparator {
 
     private static final Comparator<PolicyRecommendationCandidate> INSTANCE = Comparator
             .comparingInt((PolicyRecommendationCandidate candidate) -> statusPriority(candidate.eligibilityResult().overallStatus()))
+            .thenComparing(PolicyRecommendationCandidate::semanticScore,
+                    Comparator.nullsLast(Comparator.reverseOrder()))
             .thenComparing(candidate -> candidate.policy().getApplicationEndDate(),
                     Comparator.nullsLast(Comparator.naturalOrder()))
             .thenComparing(candidate -> candidate.policy().getCreatedAt(), Comparator.reverseOrder())
