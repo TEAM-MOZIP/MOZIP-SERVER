@@ -79,23 +79,32 @@ public class PolicyRecommendationService {
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new UserProfileNotFoundException(userId));
 
-        List<PolicyRecommendationCandidate> candidates = getSortedCandidates(userProfile, condition);
+        CandidateBuildResult buildResult = buildCandidateContext(userProfile, condition);
 
         List<PolicyRecommendationCandidate> filteredCandidates = onlyEligible
-                ? candidates.stream()
+                ? buildResult.candidates().stream()
                         .filter(candidate -> candidate.eligibilityResult().overallStatus() == EligibilityStatus.ELIGIBLE)
                         .toList()
-                : candidates;
+                : buildResult.candidates();
 
-        return toPageResponse(filteredCandidates, userProfile, userId, pageable);
+        Map<Long, Double> semanticScoreByPolicyId = getSemanticScores(userProfile, filteredCandidates, buildResult);
+
+        List<PolicyRecommendationCandidate> sortedCandidates = filteredCandidates.stream()
+                .map(candidate -> withSemanticScore(candidate, semanticScoreByPolicyId.get(candidate.policy().getId())))
+                .sorted(PolicyRecommendationComparator.comparator())
+                .toList();
+
+        return toPageResponse(sortedCandidates, userId, pageable);
     }
 
     public List<PolicyPackageResponse> getPackages(Long userId) {
         UserProfile userProfile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new UserProfileNotFoundException(userId));
 
-        List<PolicyRecommendationCandidate> candidates = getSortedCandidates(userProfile, EMPTY_CONDITION).stream()
+        CandidateBuildResult buildResult = buildCandidateContext(userProfile, EMPTY_CONDITION);
+        List<PolicyRecommendationCandidate> candidates = buildResult.candidates().stream()
                 .filter(candidate -> candidate.eligibilityResult().overallStatus() != EligibilityStatus.INELIGIBLE)
+                .sorted(PolicyRecommendationComparator.comparator())
                 .toList();
 
         List<Long> policyIds = candidates.stream().map(candidate -> candidate.policy().getId()).toList();
@@ -122,7 +131,11 @@ public class PolicyRecommendationService {
                 .toList();
     }
 
-    private List<PolicyRecommendationCandidate> getSortedCandidates(UserProfile userProfile, PolicySearchRequest condition) {
+    /**
+     * 정책 조회 + eligibility/availability 평가까지만 수행하고 semanticScore는 채우지 않은 채(null) 반환한다.
+     * Semantic Match 요청 생성에 필요한 eligibility/region 조회 결과도 함께 반환해 재조회를 피한다.
+     */
+    private CandidateBuildResult buildCandidateContext(UserProfile userProfile, PolicySearchRequest condition) {
         Specification<Policy> spec = Specification.allOf(
                 PolicySpecifications.keywordContains(condition.keyword()),
                 PolicySpecifications.hasCategory(condition.categoryId()),
@@ -142,23 +155,40 @@ public class PolicyRecommendationService {
                 : policyEligibilityRepository.findByPolicyIdIn(policyIds).stream()
                         .collect(Collectors.toMap(eligibility -> eligibility.getPolicy().getId(), Function.identity()));
 
-        Map<Long, List<Long>> regionIdsByPolicyId = regionalPolicyIds.isEmpty()
+        Map<Long, List<PolicyRegion>> policyRegionsByPolicyId = regionalPolicyIds.isEmpty()
                 ? Map.of()
                 : policyRegionRepository.findByPolicyIdIn(regionalPolicyIds).stream()
-                        .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId(),
-                                Collectors.mapping(policyRegion -> policyRegion.getRegion().getId(), Collectors.toList())));
+                        .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId()));
 
-        return policies.stream()
+        List<PolicyRecommendationCandidate> candidates = policies.stream()
                 .map(policy -> {
                     PolicyEligibility eligibility = eligibilityByPolicyId.get(policy.getId());
-                    List<Long> regionIds = regionIdsByPolicyId.getOrDefault(policy.getId(), List.of());
+                    List<Long> regionIds = policyRegionsByPolicyId.getOrDefault(policy.getId(), List.of()).stream()
+                            .map(policyRegion -> policyRegion.getRegion().getId())
+                            .toList();
                     PolicyEligibilityResult eligibilityResult =
                             policyEligibilityEvaluator.evaluate(userProfile, policy, regionIds, eligibility);
                     PolicyAvailabilityResult availabilityResult = policyAvailabilityEvaluator.evaluate(policy);
-                    return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult);
+                    return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult, null);
                 })
-                .sorted(PolicyRecommendationComparator.comparator())
                 .toList();
+
+        return new CandidateBuildResult(candidates, eligibilityByPolicyId, policyRegionsByPolicyId);
+    }
+
+    private Map<Long, Double> getSemanticScores(UserProfile userProfile, List<PolicyRecommendationCandidate> candidates,
+                                                 CandidateBuildResult buildResult) {
+        if (candidates.isEmpty()) {
+            return Map.of();
+        }
+        List<Policy> policies = candidates.stream().map(PolicyRecommendationCandidate::policy).toList();
+        return semanticMatchService.matchScores(userProfile, policies,
+                buildResult.eligibilityByPolicyId(), buildResult.policyRegionsByPolicyId());
+    }
+
+    private PolicyRecommendationCandidate withSemanticScore(PolicyRecommendationCandidate candidate, Double semanticScore) {
+        return new PolicyRecommendationCandidate(candidate.policy(), candidate.eligibilityResult(),
+                candidate.availabilityResult(), semanticScore);
     }
 
     private Map<Long, List<Category>> groupCategoriesByPolicyId(List<Long> policyIds) {
@@ -171,7 +201,7 @@ public class PolicyRecommendationService {
     }
 
     private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,
-                                                                        UserProfile userProfile, Long userId, Pageable pageable) {
+                                                                        Long userId, Pageable pageable) {
         int totalElements = candidates.size();
         int size = pageable.getPageSize();
         int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / size);
@@ -185,12 +215,11 @@ public class PolicyRecommendationService {
         Set<Long> bookmarkedPolicyIds = pagePolicyIds.isEmpty()
                 ? Set.of()
                 : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, pagePolicyIds));
-        Map<Long, Double> semanticScoreByPolicyId = getSemanticScores(userProfile, pageContent);
 
         List<PolicyRecommendationResponse> content = pageContent.stream()
                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
                         candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()),
-                        semanticScoreByPolicyId.get(candidate.policy().getId())))
+                        candidate.semanticScore()))
                 .toList();
 
         boolean first = pageable.getPageNumber() == 0;
@@ -199,25 +228,10 @@ public class PolicyRecommendationService {
         return new PageResponse<>(content, pageable.getPageNumber(), size, totalElements, totalPages, first, last);
     }
 
-    private Map<Long, Double> getSemanticScores(UserProfile userProfile, List<PolicyRecommendationCandidate> pageContent) {
-        List<Policy> pagePolicies = pageContent.stream().map(PolicyRecommendationCandidate::policy).toList();
-        if (pagePolicies.isEmpty()) {
-            return Map.of();
-        }
-
-        List<Long> pagePolicyIds = pagePolicies.stream().map(Policy::getId).toList();
-        Map<Long, PolicyEligibility> eligibilityByPolicyId = policyEligibilityRepository.findByPolicyIdIn(pagePolicyIds).stream()
-                .collect(Collectors.toMap(eligibility -> eligibility.getPolicy().getId(), Function.identity()));
-
-        List<Long> regionalPagePolicyIds = pagePolicies.stream()
-                .filter(policy -> policy.getRegionScope() == RegionScope.REGIONAL)
-                .map(Policy::getId)
-                .toList();
-        Map<Long, List<PolicyRegion>> policyRegionsByPolicyId = regionalPagePolicyIds.isEmpty()
-                ? Map.of()
-                : policyRegionRepository.findByPolicyIdIn(regionalPagePolicyIds).stream()
-                        .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId()));
-
-        return semanticMatchService.matchScores(userProfile, pagePolicies, eligibilityByPolicyId, policyRegionsByPolicyId);
+    private record CandidateBuildResult(
+            List<PolicyRecommendationCandidate> candidates,
+            Map<Long, PolicyEligibility> eligibilityByPolicyId,
+            Map<Long, List<PolicyRegion>> policyRegionsByPolicyId
+    ) {
     }
 }

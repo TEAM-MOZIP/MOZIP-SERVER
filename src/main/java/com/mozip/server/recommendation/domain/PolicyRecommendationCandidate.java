@@ -6,6 +6,7 @@ import com.mozip.server.policy.entity.Policy;
 public record PolicyRecommendationCandidate(
         Policy policy,
         PolicyEligibilityResult eligibilityResult,
-        PolicyAvailabilityResult availabilityResult
+        PolicyAvailabilityResult availabilityResult,
+        Double semanticScore
 ) {
 }
