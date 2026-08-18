@@ -19,3 +19,4 @@ mozip:
   ai:
     base-url: ${MOZIP_AI_BASE_URL:http://localhost:8000}
     timeout-seconds: ${MOZIP_AI_TIMEOUT_SECONDS:3}
+    explain-timeout-seconds: ${MOZIP_AI_EXPLAIN_TIMEOUT_SECONDS:4}

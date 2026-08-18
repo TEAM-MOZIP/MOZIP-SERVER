@@ -231,7 +231,7 @@ class SemanticMatchClientTest {
             acceptThread.start();
 
             MozipAiProperties properties = new MozipAiProperties(
-                    "http://localhost:" + serverSocket.getLocalPort(), 1);
+                    "http://localhost:" + serverSocket.getLocalPort(), 1, 1);
             SemanticMatchClient realClient = new SemanticMatchClient(RestClient.builder(), properties);
 
             long start = System.nanoTime();
