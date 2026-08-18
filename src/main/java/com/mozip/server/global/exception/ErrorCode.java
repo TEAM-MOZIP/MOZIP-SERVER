@@ -20,6 +20,8 @@ public enum ErrorCode {
     INVALID_KAKAO_CODE(HttpStatus.BAD_REQUEST, "유효하지 않은 카카오 인가 코드입니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "유효하지 않은 refresh token 입니다."),
     EXPIRED_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "만료된 refresh token 입니다."),
+    TERM_EXPLANATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+            "지금은 용어 설명을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.");
 
     private final HttpStatus status;
