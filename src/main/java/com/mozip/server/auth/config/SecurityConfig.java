@@ -36,6 +36,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/policies/*/terms/explain").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/policies/*/application-guide").authenticated()
                         .requestMatchers("/api/policies/**", "/swagger-ui/**", "/v3/api-docs/**", "/error",
                                 "/api/auth/kakao/login", "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/regions", "/api/categories").permitAll()
