@@ -31,7 +31,8 @@ class PolicyEligibilityEvaluatorTest {
 
     // 평가 기준일: 2026-07-23 로 고정
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-23T00:00:00Z"), ZoneId.of("Asia/Seoul"));
-    private final PolicyEligibilityEvaluator evaluator = new PolicyEligibilityEvaluator(clock);
+    private final PolicyEligibilityEvaluator evaluator =
+            new PolicyEligibilityEvaluator(clock, new EligibilityConditionMatcher());
 
     private final Region seoulRegion = region(1L, "SEOUL", "서울특별시", null);
     private final Region mapoRegion = region(2L, "SEOUL_MAPO", "마포구", seoulRegion);

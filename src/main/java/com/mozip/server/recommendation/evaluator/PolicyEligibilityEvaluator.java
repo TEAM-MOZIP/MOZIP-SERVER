@@ -2,16 +2,11 @@ package com.mozip.server.recommendation.evaluator;
 
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyEligibility;
-import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.recommendation.domain.ConditionResult;
 import com.mozip.server.recommendation.domain.ConditionStatus;
 import com.mozip.server.recommendation.domain.ConditionType;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
-import com.mozip.server.region.entity.Region;
-import com.mozip.server.user.entity.EmploymentStatus;
-import com.mozip.server.user.entity.HouseholdType;
-import com.mozip.server.user.entity.IncomeType;
 import com.mozip.server.user.entity.UserProfile;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -24,14 +19,13 @@ import org.springframework.stereotype.Component;
 public class PolicyEligibilityEvaluator {
 
     private static final String NO_ELIGIBILITY_REASON = "자격 조건 정보가 등록되지 않음";
-    private static final String ELIGIBLE_REASON = "모든 자동 판정 조건을 충족했습니다.";
-    private static final String INELIGIBLE_REASON = "충족하지 못한 자격 조건이 있습니다.";
-    private static final String NEEDS_REVIEW_REASON = "자동 판정할 수 없는 조건이 있습니다.";
 
     private final Clock clock;
+    private final EligibilityConditionMatcher matcher;
 
-    public PolicyEligibilityEvaluator(Clock clock) {
+    public PolicyEligibilityEvaluator(Clock clock, EligibilityConditionMatcher matcher) {
         this.clock = clock;
+        this.matcher = matcher;
     }
 
     public PolicyEligibilityResult evaluate(UserProfile userProfile, Policy policy, List<Long> policyRegionIds,
@@ -56,20 +50,7 @@ public class PolicyEligibilityEvaluator {
                     "추가 확인이 필요한 조건이 있습니다"));
         }
 
-        return summarize(results);
-    }
-
-    private PolicyEligibilityResult summarize(List<ConditionResult> results) {
-        boolean hasNotMatched = results.stream().anyMatch(r -> r.status() == ConditionStatus.NOT_MATCHED);
-        boolean hasNeedsReview = results.stream().anyMatch(r -> r.status() == ConditionStatus.NEEDS_REVIEW);
-
-        if (hasNotMatched) {
-            return new PolicyEligibilityResult(EligibilityStatus.INELIGIBLE, INELIGIBLE_REASON, results);
-        }
-        if (hasNeedsReview) {
-            return new PolicyEligibilityResult(EligibilityStatus.NEEDS_REVIEW, NEEDS_REVIEW_REASON, results);
-        }
-        return new PolicyEligibilityResult(EligibilityStatus.ELIGIBLE, ELIGIBLE_REASON, results);
+        return PolicyEligibilityResult.summarize(results);
     }
 
     private ConditionResult evaluateAge(UserProfile userProfile, PolicyEligibility eligibility) {
@@ -77,10 +58,10 @@ public class PolicyEligibilityEvaluator {
         Integer maximumAge = eligibility.getMaximumAge();
 
         if (minimumAge == null && maximumAge == null) {
-            return new ConditionResult(ConditionType.AGE, ConditionStatus.MATCHED, "연령 제한 없음");
+            return matcher.matchAge(null, null, null);
         }
         if (minimumAge != null && maximumAge != null && minimumAge > maximumAge) {
-            return new ConditionResult(ConditionType.AGE, ConditionStatus.NEEDS_REVIEW, "연령 조건 데이터가 올바르지 않음");
+            return matcher.matchAge(null, minimumAge, maximumAge);
         }
 
         LocalDate birthDate = userProfile.getBirthDate();
@@ -94,108 +75,23 @@ public class PolicyEligibilityEvaluator {
         }
 
         int age = Period.between(birthDate, today).getYears();
-        boolean satisfiesMin = minimumAge == null || age >= minimumAge;
-        boolean satisfiesMax = maximumAge == null || age <= maximumAge;
-
-        if (satisfiesMin && satisfiesMax) {
-            return new ConditionResult(ConditionType.AGE, ConditionStatus.MATCHED, "연령 조건을 충족합니다.");
-        }
-        return new ConditionResult(ConditionType.AGE, ConditionStatus.NOT_MATCHED, "연령 조건을 충족하지 못했습니다.");
+        return matcher.matchAge(age, minimumAge, maximumAge);
     }
 
     private ConditionResult evaluateRegion(UserProfile userProfile, Policy policy, List<Long> policyRegionIds) {
-        if (policy.getRegionScope() == RegionScope.NATIONAL) {
-            return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "전국 대상 정책입니다.");
-        }
-        if (policyRegionIds.isEmpty()) {
-            return new ConditionResult(ConditionType.REGION, ConditionStatus.NEEDS_REVIEW, "정책 지원 지역 정보가 등록되지 않음");
-        }
-        Region userRegion = userProfile.getRegion();
-        if (userRegion == null) {
-            return new ConditionResult(ConditionType.REGION, ConditionStatus.NEEDS_REVIEW, "사용자 지역 정보가 없어 자동 판정할 수 없음");
-        }
-        if (policyRegionIds.contains(userRegion.getId())) {
-            return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "지역 조건을 충족합니다.");
-        }
-        Region userRegionParent = userRegion.getParent();
-        if (userRegionParent != null && policyRegionIds.contains(userRegionParent.getId())) {
-            return new ConditionResult(ConditionType.REGION, ConditionStatus.MATCHED, "지역 조건을 충족합니다.");
-        }
-        return new ConditionResult(ConditionType.REGION, ConditionStatus.NOT_MATCHED, "정책 지원 지역과 일치하지 않습니다.");
+        return matcher.matchRegion(policy.getRegionScope(), policyRegionIds, userProfile.getRegion());
     }
 
     private ConditionResult evaluateIncome(UserProfile userProfile, PolicyEligibility eligibility) {
-        IncomeType incomeType = eligibility.getIncomeType();
-        Integer minimumIncomeValue = eligibility.getMinimumIncomeValue();
-        Integer maximumIncomeValue = eligibility.getMaximumIncomeValue();
-
-        if (incomeType == null && minimumIncomeValue == null && maximumIncomeValue == null) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.MATCHED, "소득 제한 없음");
-        }
-        if (incomeType == null) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.NEEDS_REVIEW,
-                    "소득 기준 유형이 없어 자동 판정할 수 없음");
-        }
-        if (minimumIncomeValue == null && maximumIncomeValue == null) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.NEEDS_REVIEW,
-                    "소득 기준값이 없어 자동 판정할 수 없음");
-        }
-        if (minimumIncomeValue != null && maximumIncomeValue != null && minimumIncomeValue > maximumIncomeValue) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.NEEDS_REVIEW,
-                    "소득 조건 데이터가 올바르지 않음");
-        }
-        if (incomeType != userProfile.getIncomeType()) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.NEEDS_REVIEW,
-                    "소득 산정 기준이 달라 직접 비교할 수 없습니다.");
-        }
-
-        Integer incomeValue = userProfile.getIncomeValue();
-        if (incomeValue == null) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.NEEDS_REVIEW,
-                    "사용자 소득 정보가 없어 자동 판정할 수 없음");
-        }
-        boolean satisfiesMin = minimumIncomeValue == null || incomeValue >= minimumIncomeValue;
-        boolean satisfiesMax = maximumIncomeValue == null || incomeValue <= maximumIncomeValue;
-
-        if (satisfiesMin && satisfiesMax) {
-            return new ConditionResult(ConditionType.INCOME, ConditionStatus.MATCHED, "소득 조건을 충족합니다.");
-        }
-        return new ConditionResult(ConditionType.INCOME, ConditionStatus.NOT_MATCHED, "소득 조건을 충족하지 못했습니다.");
+        return matcher.matchIncome(eligibility.getIncomeType(), eligibility.getMinimumIncomeValue(),
+                eligibility.getMaximumIncomeValue(), userProfile.getIncomeType(), userProfile.getIncomeValue());
     }
 
     private ConditionResult evaluateEmploymentStatus(UserProfile userProfile, PolicyEligibility eligibility) {
-        List<String> allowedEmploymentStatuses = eligibility.getAllowedEmploymentStatuses();
-        // 시드 데이터에는 null과 빈 배열을 구분해서 쓰는 사례가 없어, 둘 다 "제한 없음"으로 동일하게 처리한다.
-        if (allowedEmploymentStatuses == null || allowedEmploymentStatuses.isEmpty()) {
-            return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.MATCHED, "고용 상태 제한 없음");
-        }
-        EmploymentStatus employmentStatus = userProfile.getEmploymentStatus();
-        if (employmentStatus == null) {
-            return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.NEEDS_REVIEW,
-                    "사용자 고용 상태 정보가 없어 자동 판정할 수 없음");
-        }
-        if (allowedEmploymentStatuses.contains(employmentStatus.name())) {
-            return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.MATCHED, "고용 상태 조건을 충족합니다.");
-        }
-        return new ConditionResult(ConditionType.EMPLOYMENT_STATUS, ConditionStatus.NOT_MATCHED,
-                "고용 상태 조건을 충족하지 못했습니다.");
+        return matcher.matchEmploymentStatus(eligibility.getAllowedEmploymentStatuses(), userProfile.getEmploymentStatus());
     }
 
     private ConditionResult evaluateHouseholdType(UserProfile userProfile, PolicyEligibility eligibility) {
-        List<String> allowedHouseholdTypes = eligibility.getAllowedHouseholdTypes();
-        // 시드 데이터에는 null과 빈 배열을 구분해서 쓰는 사례가 없어, 둘 다 "제한 없음"으로 동일하게 처리한다.
-        if (allowedHouseholdTypes == null || allowedHouseholdTypes.isEmpty()) {
-            return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.MATCHED, "가구 유형 제한 없음");
-        }
-        HouseholdType householdType = userProfile.getHouseholdType();
-        if (householdType == null) {
-            return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.NEEDS_REVIEW,
-                    "사용자 가구 유형 정보가 없어 자동 판정할 수 없음");
-        }
-        if (allowedHouseholdTypes.contains(householdType.name())) {
-            return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.MATCHED, "가구 유형 조건을 충족합니다.");
-        }
-        return new ConditionResult(ConditionType.HOUSEHOLD_TYPE, ConditionStatus.NOT_MATCHED,
-                "가구 유형 조건을 충족하지 못했습니다.");
+        return matcher.matchHouseholdType(eligibility.getAllowedHouseholdTypes(), userProfile.getHouseholdType());
     }
 }
