@@ -6,6 +6,7 @@ public record ChatResponseRequest(
         String message,
         List<GroundingPolicy> groundingPolicies,
         PolicyDetailGrounding policyDetail,
-        List<UnresolvedCondition> unresolvedConditions
+        List<UnresolvedCondition> unresolvedConditions,
+        List<ChatTurn> history
 ) {
 }

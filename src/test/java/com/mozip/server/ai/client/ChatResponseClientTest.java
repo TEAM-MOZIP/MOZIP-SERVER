@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.mozip.server.ai.dto.ChatResponseRequest;
 import com.mozip.server.ai.dto.ChatResponseResponse;
+import com.mozip.server.ai.dto.ChatTurn;
 import com.mozip.server.ai.dto.ConditionAxis;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
@@ -69,7 +70,8 @@ class ChatResponseClientTest {
                         Matchers.containsString("\"message\":\"국민취업지원제도가 뭐야?\""),
                         Matchers.containsString("\"groundingPolicies\""),
                         Matchers.containsString("\"policyDetail\""),
-                        Matchers.containsString("\"unresolvedConditions\"")
+                        Matchers.containsString("\"unresolvedConditions\""),
+                        Matchers.containsString("\"history\"")
                 )))
                 .andRespond(withSuccess("""
                         {"reply":"ok"}
@@ -84,7 +86,8 @@ class ChatResponseClientTest {
                 "서울 사는 프리랜서인데 받을 수 있는 정책 있어?",
                 List.of(),
                 null,
-                List.of(new UnresolvedCondition(ConditionAxis.EMPLOYMENT_STATUS, "프리랜서"))
+                List.of(new UnresolvedCondition(ConditionAxis.EMPLOYMENT_STATUS, "프리랜서")),
+                List.of()
         );
 
         mockServer.expect(requestTo("http://localhost:9999/api/v1/chat/respond"))
@@ -158,11 +161,36 @@ class ChatResponseClientTest {
         }
     }
 
+    @Test
+    void history의_message와_reply가_camelCase_필드명으로_직렬화된다() {
+        ChatResponseRequest requestWithHistory = new ChatResponseRequest(
+                "신청 기간은?",
+                List.of(),
+                null,
+                List.of(),
+                List.of(new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 취업지원서비스와 소득지원을 결합한 제도입니다."))
+        );
+
+        mockServer.expect(requestTo("http://localhost:9999/api/v1/chat/respond"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(Matchers.allOf(
+                        Matchers.containsString("\"history\""),
+                        Matchers.containsString("\"message\":\"국민취업지원제도 알려줘\""),
+                        Matchers.containsString("\"reply\":\"국민취업지원제도는 취업지원서비스와 소득지원을 결합한 제도입니다.\"")
+                )))
+                .andRespond(withSuccess("""
+                        {"reply":"ok"}
+                        """, MediaType.APPLICATION_JSON));
+
+        chatResponseClient.respond(requestWithHistory);
+    }
+
     private ChatResponseRequest sampleRequest() {
         return new ChatResponseRequest(
                 "국민취업지원제도가 뭐야?",
                 List.of(new GroundingPolicy(1L, "국민취업지원제도", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 12, 31))),
                 new PolicyDetailGrounding("국민취업지원제도", "요약", "만 15세 이상 69세 이하 구직자", "상시 신청 가능", "고용노동부"),
+                List.of(),
                 List.of()
         );
     }

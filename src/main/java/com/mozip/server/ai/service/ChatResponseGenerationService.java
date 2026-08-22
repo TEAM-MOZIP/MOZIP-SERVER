@@ -3,6 +3,7 @@ package com.mozip.server.ai.service;
 import com.mozip.server.ai.client.ChatResponseClient;
 import com.mozip.server.ai.dto.ChatResponseRequest;
 import com.mozip.server.ai.dto.ChatResponseResponse;
+import com.mozip.server.ai.dto.ChatTurn;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.ai.dto.UnresolvedCondition;
@@ -30,8 +31,9 @@ public class ChatResponseGenerationService {
     }
 
     public String generate(String message, List<GroundingPolicy> groundingPolicies, PolicyDetailGrounding policyDetail,
-                            List<UnresolvedCondition> unresolvedConditions) {
-        ChatResponseRequest request = new ChatResponseRequest(message, groundingPolicies, policyDetail, unresolvedConditions);
+                            List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history) {
+        ChatResponseRequest request =
+                new ChatResponseRequest(message, groundingPolicies, policyDetail, unresolvedConditions, history);
 
         ChatResponseResponse response;
         try {
