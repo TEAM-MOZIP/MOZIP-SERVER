@@ -12,6 +12,7 @@ import com.mozip.server.chat.dto.ChatMatchedPolicyResponse;
 import com.mozip.server.chat.dto.ChatPolicyMatchResult;
 import com.mozip.server.chat.dto.ChatRequest;
 import com.mozip.server.chat.dto.ChatResponse;
+import com.mozip.server.chat.dto.ChatTurn;
 import com.mozip.server.chat.dto.ChatUnresolvedConditionResponse;
 import com.mozip.server.chat.evaluator.ChatPolicyMatchComparator;
 import com.mozip.server.policy.entity.Policy;
@@ -63,9 +64,9 @@ public class ChatService {
         ConditionExtractionResponse extraction = conditionExtractionService.extract(message);
 
         if (extraction != null && hasActionableAxis(extraction)) {
-            return handleConditionSearch(message, extraction);
+            return handleConditionSearch(message, extraction, request.history());
         }
-        return handleGeneralOrPolicyDetail(message, extraction);
+        return handleGeneralOrPolicyDetail(message, extraction, request.history());
     }
 
     /**
@@ -82,7 +83,8 @@ public class ChatService {
                 || extraction.incomeValue() != null;
     }
 
-    private ChatResponse handleConditionSearch(String message, ConditionExtractionResponse extraction) {
+    private ChatResponse handleConditionSearch(String message, ConditionExtractionResponse extraction,
+                                                List<ChatTurn> history) {
         ChatCondition condition = toChatCondition(extraction);
         List<ChatPolicyMatchResult> allMatches = chatPolicySearchService.search(condition);
 
@@ -95,7 +97,8 @@ public class ChatService {
         List<UnresolvedCondition> unresolvedConditions = extraction.unresolvedConditions();
         List<GroundingPolicy> groundingPolicies = ChatResponseRequestMapper.toGroundingPolicies(top);
 
-        String reply = chatResponseGenerationService.generate(message, groundingPolicies, null, unresolvedConditions);
+        String reply = chatResponseGenerationService.generate(message, groundingPolicies, null, unresolvedConditions,
+                ChatResponseRequestMapper.toAiChatTurns(history));
 
         return new ChatResponse(
                 reply,
@@ -109,7 +112,8 @@ public class ChatService {
      * 흐름(AI 응답 생성 호출, 빈 matchedPolicies)이 같아 하나의 경로로 처리한다. 정책
      * 제목이 메시지 안에서 정확히 하나만 매칭되면 Case C, 아니면 Case B로 수렴한다.
      */
-    private ChatResponse handleGeneralOrPolicyDetail(String message, ConditionExtractionResponse extraction) {
+    private ChatResponse handleGeneralOrPolicyDetail(String message, ConditionExtractionResponse extraction,
+                                                       List<ChatTurn> history) {
         List<UnresolvedCondition> unresolvedConditions = extraction != null ? extraction.unresolvedConditions() : List.of();
 
         PolicyDetailGrounding policyDetail = matchPolicyByTitle(message)
@@ -117,7 +121,8 @@ public class ChatService {
                 .map(ChatResponseRequestMapper::toPolicyDetailGrounding)
                 .orElse(null);
 
-        String reply = chatResponseGenerationService.generate(message, List.of(), policyDetail, unresolvedConditions);
+        String reply = chatResponseGenerationService.generate(message, List.of(), policyDetail, unresolvedConditions,
+                ChatResponseRequestMapper.toAiChatTurns(history));
 
         return new ChatResponse(reply, List.of(),
                 unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList());
