@@ -14,6 +14,7 @@ import com.mozip.server.auth.config.SecurityConfig;
 import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.chat.dto.ChatRequest;
 import com.mozip.server.chat.dto.ChatResponse;
+import com.mozip.server.chat.dto.ChatTurn;
 import com.mozip.server.chat.service.ChatService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -46,7 +47,7 @@ class ChatControllerTest {
     void 인증_없이_요청하면_401이다() throws Exception {
         mockMvc.perform(post("/api/chat/messages")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChatRequest("안녕"))))
+                        .content(objectMapper.writeValueAsString(new ChatRequest("안녕", List.of()))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -59,7 +60,36 @@ class ChatControllerTest {
         mockMvc.perform(post("/api/chat/messages")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChatRequest("서울 사는 취준생이 받을 정책 있어?"))))
+                        .content(objectMapper.writeValueAsString(new ChatRequest("서울 사는 취준생이 받을 정책 있어?", List.of()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reply").value("답변입니다."));
+    }
+
+    @Test
+    void history가_포함된_요청도_정상_처리된다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        ChatResponse response = new ChatResponse("신청 기간은 상시입니다.", List.of(), List.of());
+        when(chatService.handle(any())).thenReturn(response);
+        List<ChatTurn> history = List.of(new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 ~ 제도입니다."));
+
+        mockMvc.perform(post("/api/chat/messages")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChatRequest("신청 기간은?", history))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reply").value("신청 기간은 상시입니다."));
+    }
+
+    @Test
+    void history_필드가_생략된_요청도_기존과_동일하게_처리된다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        ChatResponse response = new ChatResponse("답변입니다.", List.of(), List.of());
+        when(chatService.handle(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/chat/messages")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"서울 사는 취준생이 받을 정책 있어?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reply").value("답변입니다."));
     }
@@ -71,7 +101,7 @@ class ChatControllerTest {
         mockMvc.perform(post("/api/chat/messages")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChatRequest("   "))))
+                        .content(objectMapper.writeValueAsString(new ChatRequest("   ", List.of()))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
@@ -84,7 +114,7 @@ class ChatControllerTest {
         mockMvc.perform(post("/api/chat/messages")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChatRequest("서울 사는 취준생이 받을 정책 있어?"))))
+                        .content(objectMapper.writeValueAsString(new ChatRequest("서울 사는 취준생이 받을 정책 있어?", List.of()))))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("CHAT_RESPONSE_UNAVAILABLE"));
     }
