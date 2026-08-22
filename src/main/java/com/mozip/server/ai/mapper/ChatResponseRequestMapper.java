@@ -1,5 +1,6 @@
 package com.mozip.server.ai.mapper;
 
+import com.mozip.server.ai.dto.ChatTurn;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.chat.dto.ChatPolicyMatchResult;
@@ -21,6 +22,12 @@ public class ChatResponseRequestMapper {
     private static final String NO_SUMMARY_TEXT = "요약 정보가 등록되지 않음";
 
     private ChatResponseRequestMapper() {
+    }
+
+    public static List<ChatTurn> toAiChatTurns(List<com.mozip.server.chat.dto.ChatTurn> history) {
+        return history.stream()
+                .map(turn -> new ChatTurn(turn.message(), turn.reply()))
+                .toList();
     }
 
     public static List<GroundingPolicy> toGroundingPolicies(List<ChatPolicyMatchResult> matches) {

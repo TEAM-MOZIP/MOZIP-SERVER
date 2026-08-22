@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.chat.dto.ChatPolicyMatchResult;
+import com.mozip.server.chat.dto.ChatTurn;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
@@ -72,6 +73,28 @@ class ChatResponseRequestMapperTest {
         assertThat(grounding.applicationPeriod()).isEqualTo("2026-01-01 ~ 2026-03-31");
         assertThat(grounding.summary()).isEqualTo("설명");
         assertThat(grounding.eligibility()).isEqualTo("자격 조건 정보가 등록되지 않음");
+    }
+
+    @Test
+    void chat_dto_ChatTurn_목록을_ai_dto_ChatTurn_목록으로_순서를_유지한_채_변환한다() {
+        List<ChatTurn> history = List.of(
+                new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 ~ 제도입니다."),
+                new ChatTurn("신청 기간은?", "2026-01-01 ~ 2026-12-31입니다."));
+
+        List<com.mozip.server.ai.dto.ChatTurn> result = ChatResponseRequestMapper.toAiChatTurns(history);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).message()).isEqualTo("국민취업지원제도 알려줘");
+        assertThat(result.get(0).reply()).isEqualTo("국민취업지원제도는 ~ 제도입니다.");
+        assertThat(result.get(1).message()).isEqualTo("신청 기간은?");
+        assertThat(result.get(1).reply()).isEqualTo("2026-01-01 ~ 2026-12-31입니다.");
+    }
+
+    @Test
+    void 빈_history는_빈_리스트로_변환된다() {
+        List<com.mozip.server.ai.dto.ChatTurn> result = ChatResponseRequestMapper.toAiChatTurns(List.of());
+
+        assertThat(result).isEmpty();
     }
 
     private Policy policy(Long id, String title, LocalDate applicationEndDate) {
