@@ -159,6 +159,78 @@ class PolicyRecommendationComparatorTest {
         assertThat(sorted).containsExactly(earlierDeadlineOlder, laterDeadline, needsReview, ineligible);
     }
 
+    @Test
+    void INELIGIBLE은_availability와_무관하게_항상_최하위다() {
+        PolicyRecommendationCandidate eligibleUnavailable =
+                candidateWithAvailability(1L, EligibilityStatus.ELIGIBLE, PolicyAvailability.UNAVAILABLE, null);
+        PolicyRecommendationCandidate ineligibleAvailable =
+                candidateWithAvailability(2L, EligibilityStatus.INELIGIBLE, PolicyAvailability.AVAILABLE, null);
+
+        assertThat(comparator.compare(eligibleUnavailable, ineligibleAvailable)).isNegative();
+    }
+
+    @Test
+    void non_INELIGIBLE_사이에서는_availability가_eligibility보다_우선한다() {
+        // Phase E fix: "자격은 확실하지만 마감"보다 "자격은 불확실하지만 지금 신청 가능"을 먼저 보여준다.
+        // 기존 "ELIGIBLE이 NEEDS_REVIEW보다 항상 우선한다" 불변식은 같은 availability 안에서만 성립하도록
+        // 범위가 좁혀졌다(위 ELIGIBLE이_NEEDS_REVIEW보다_우선한다() 테스트가 그 범위를 계속 보장한다).
+        PolicyRecommendationCandidate needsReviewAvailable =
+                candidateWithAvailability(1L, EligibilityStatus.NEEDS_REVIEW, PolicyAvailability.AVAILABLE, null);
+        PolicyRecommendationCandidate eligibleUnavailable =
+                candidateWithAvailability(2L, EligibilityStatus.ELIGIBLE, PolicyAvailability.UNAVAILABLE, null);
+
+        assertThat(comparator.compare(needsReviewAvailable, eligibleUnavailable)).isNegative();
+    }
+
+    @Test
+    void 같은_eligibility에서는_AVAILABLE_NEEDS_REVIEW_UNAVAILABLE_순으로_정렬된다() {
+        PolicyRecommendationCandidate available =
+                candidateWithAvailability(1L, EligibilityStatus.ELIGIBLE, PolicyAvailability.AVAILABLE, null);
+        PolicyRecommendationCandidate needsReview =
+                candidateWithAvailability(2L, EligibilityStatus.ELIGIBLE, PolicyAvailability.NEEDS_REVIEW, null);
+        PolicyRecommendationCandidate unavailable =
+                candidateWithAvailability(3L, EligibilityStatus.ELIGIBLE, PolicyAvailability.UNAVAILABLE, null);
+
+        List<PolicyRecommendationCandidate> sorted =
+                List.of(unavailable, needsReview, available).stream().sorted(comparator).toList();
+
+        assertThat(sorted).containsExactly(available, needsReview, unavailable);
+    }
+
+    @Test
+    void semanticScore가_높아도_availability_tier를_뒤집지_못한다() {
+        PolicyRecommendationCandidate availableLowScore =
+                candidateWithAvailability(1L, EligibilityStatus.ELIGIBLE, PolicyAvailability.AVAILABLE, 0.2, null);
+        PolicyRecommendationCandidate unavailableHighScore =
+                candidateWithAvailability(2L, EligibilityStatus.ELIGIBLE, PolicyAvailability.UNAVAILABLE, 1.0, null);
+
+        assertThat(comparator.compare(availableLowScore, unavailableHighScore)).isNegative();
+    }
+
+    private PolicyRecommendationCandidate candidateWithAvailability(Long id, EligibilityStatus eligibilityStatus,
+                                                                      PolicyAvailability availability, LocalDate applicationEndDate) {
+        return candidateWithAvailability(id, eligibilityStatus, availability, null, applicationEndDate);
+    }
+
+    private PolicyRecommendationCandidate candidateWithAvailability(Long id, EligibilityStatus eligibilityStatus,
+                                                                      PolicyAvailability availability, Double semanticScore,
+                                                                      LocalDate applicationEndDate) {
+        Policy policy = Policy.builder()
+                .title("테스트 정책 " + id)
+                .applicationType(ApplicationType.PERIOD)
+                .applicationEndDate(applicationEndDate)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.OPEN)
+                .build();
+        ReflectionTestUtils.setField(policy, "id", id);
+
+        PolicyEligibilityResult eligibilityResult = new PolicyEligibilityResult(eligibilityStatus, "테스트 사유", List.of());
+        PolicyAvailabilityResult availabilityResult =
+                new PolicyAvailabilityResult(availability, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false);
+
+        return new PolicyRecommendationCandidate(policy, eligibilityResult, availabilityResult, semanticScore);
+    }
+
     private PolicyRecommendationCandidate candidate(Long id, EligibilityStatus status, LocalDate applicationEndDate,
                                                       LocalDateTime createdAt) {
         return candidate(id, status, null, applicationEndDate, createdAt);
