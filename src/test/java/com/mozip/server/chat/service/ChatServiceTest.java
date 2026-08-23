@@ -25,12 +25,14 @@ import com.mozip.server.chat.dto.ChatResponse;
 import com.mozip.server.chat.dto.ChatTurn;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
+import com.mozip.server.policy.domain.PolicyAvailabilityResult;
 import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
+import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.service.PolicyService;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
@@ -70,16 +72,35 @@ class ChatServiceTest {
     @Mock
     private RegionRepository regionRepository;
 
+    @Mock
+    private PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
+
     private ChatService chatService;
 
     private void setUp() {
         chatService = new ChatService(conditionExtractionService, chatPolicySearchService, chatResponseGenerationService,
-                policyService, policyRepository, regionRepository);
+                policyService, policyRepository, regionRepository, policyAvailabilityEvaluator);
+    }
+
+    private void stubAllAvailable() {
+        when(policyAvailabilityEvaluator.evaluate(any())).thenReturn(
+                new PolicyAvailabilityResult(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD, false));
+    }
+
+    private void stubAllUnavailable() {
+        when(policyAvailabilityEvaluator.evaluate(any())).thenReturn(
+                new PolicyAvailabilityResult(PolicyAvailability.UNAVAILABLE, PolicyAvailabilityReason.CLOSED, false));
+    }
+
+    private void stubAllNeedsReview() {
+        when(policyAvailabilityEvaluator.evaluate(any())).thenReturn(
+                new PolicyAvailabilityResult(PolicyAvailability.NEEDS_REVIEW, PolicyAvailabilityReason.MISSING_APPLICATION_PERIOD, false));
     }
 
     @Test
     void CaseA_actionable_axis가_있으면_조건_기반_탐색을_수행한다() {
         setUp();
+        stubAllAvailable();
         ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract("25살인데 받을 정책 있어?")).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
@@ -197,6 +218,7 @@ class ChatServiceTest {
     @Test
     void INELIGIBLE_정책은_grounding과_matchedPolicies에서_제외된다() {
         setUp();
+        stubAllAvailable();
         ConditionExtractionResponse extraction = extraction(null, 15, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
@@ -219,6 +241,7 @@ class ChatServiceTest {
     @Test
     void 정책이_5개를_초과하면_정렬_후_상위_5개만_grounding으로_전달된다() {
         setUp();
+        stubAllAvailable();
         ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         // ELIGIBLE 4건 + NEEDS_REVIEW 2건 = 6건. top5는 ELIGIBLE 4건 전부(endDate 빠른 순) +
@@ -305,6 +328,102 @@ class ChatServiceTest {
         ChatResponse response = chatService.handle(new ChatRequest("기준중위소득이 뭐야?", null));
 
         assertThat(response.reply()).isEqualTo("일반 답변");
+    }
+
+    @Test
+    void ELIGIBLE와_NEEDS_REVIEW_모두_availability가_AVAILABLE이면_후보로_유지된다() {
+        setUp();
+        stubAllAvailable();
+        ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "적격 정책", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 6, 30)),
+                matchResult(2L, "확인필요 정책", EligibilityStatus.NEEDS_REVIEW, LocalDate.of(2026, 7, 31))));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
+
+        assertThat(response.matchedPolicies()).hasSize(2);
+    }
+
+    @Test
+    void availability가_UNAVAILABLE이면_eligibility와_무관하게_후보에서_제외된다() {
+        setUp();
+        stubAllUnavailable();
+        ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "적격이지만 마감", EligibilityStatus.ELIGIBLE, LocalDate.of(2025, 6, 30)),
+                matchResult(2L, "확인필요인데 마감", EligibilityStatus.NEEDS_REVIEW, LocalDate.of(2025, 7, 31))));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
+
+        assertThat(response.matchedPolicies()).isEmpty();
+    }
+
+    @Test
+    void availability가_NEEDS_REVIEW이면_챗봇_후보에서는_제외된다() {
+        setUp();
+        stubAllNeedsReview();
+        ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "적격이지만 마감확인필요", EligibilityStatus.ELIGIBLE, null)));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
+
+        assertThat(response.matchedPolicies()).isEmpty();
+    }
+
+    @Test
+    void AVAILABLE_후보가_5개_미만이면_있는_만큼만_반환한다() {
+        setUp();
+        stubAllAvailable();
+        ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "정책1", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 6, 30)),
+                matchResult(2L, "정책2", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 7, 31))));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
+
+        assertThat(response.matchedPolicies()).hasSize(2);
+    }
+
+    @Test
+    void AVAILABLE_후보가_0개면_빈_matchedPolicies를_정상_반환한다() {
+        setUp();
+        stubAllUnavailable();
+        ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "정책1", EligibilityStatus.ELIGIBLE, LocalDate.of(2025, 6, 30))));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
+
+        assertThat(response.matchedPolicies()).isEmpty();
+        assertThat(response.reply()).isEqualTo("답변");
+    }
+
+    @Test
+    void CaseB나_CaseC에서는_PolicyAvailabilityEvaluator를_호출하지_않는다() {
+        setUp();
+        ConditionExtractionResponse extraction = extraction(null, null, null, null, null, null, null, List.of());
+        when(conditionExtractionService.extract(any())).thenReturn(extraction);
+        when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("일반 답변");
+
+        chatService.handle(request("기준중위소득이 뭐야?"));
+
+        verify(policyAvailabilityEvaluator, never()).evaluate(any());
     }
 
     private ChatRequest request(String message) {
