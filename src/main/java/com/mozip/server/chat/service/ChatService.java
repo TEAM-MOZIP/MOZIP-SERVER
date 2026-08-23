@@ -15,7 +15,9 @@ import com.mozip.server.chat.dto.ChatResponse;
 import com.mozip.server.chat.dto.ChatTurn;
 import com.mozip.server.chat.dto.ChatUnresolvedConditionResponse;
 import com.mozip.server.chat.evaluator.ChatPolicyMatchComparator;
+import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.service.PolicyService;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
@@ -44,19 +46,22 @@ public class ChatService {
     private final PolicyService policyService;
     private final PolicyRepository policyRepository;
     private final RegionRepository regionRepository;
+    private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
 
     public ChatService(ConditionExtractionService conditionExtractionService,
                         ChatPolicySearchService chatPolicySearchService,
                         ChatResponseGenerationService chatResponseGenerationService,
                         PolicyService policyService,
                         PolicyRepository policyRepository,
-                        RegionRepository regionRepository) {
+                        RegionRepository regionRepository,
+                        PolicyAvailabilityEvaluator policyAvailabilityEvaluator) {
         this.conditionExtractionService = conditionExtractionService;
         this.chatPolicySearchService = chatPolicySearchService;
         this.chatResponseGenerationService = chatResponseGenerationService;
         this.policyService = policyService;
         this.policyRepository = policyRepository;
         this.regionRepository = regionRepository;
+        this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
     }
 
     public ChatResponse handle(ChatRequest request) {
@@ -88,8 +93,12 @@ public class ChatService {
         ChatCondition condition = toChatCondition(extraction);
         List<ChatPolicyMatchResult> allMatches = chatPolicySearchService.search(condition);
 
+        // availability가 NEEDS_REVIEW인 정책도 챗봇에서는 제외한다 — AI 계약(GroundingPolicy)에
+        // availability 필드가 없어 "신청 가능한지 불확실하다"는 사실을 AI에 전달할 방법이 없기
+        // 때문이다. AVAILABLE만 통과시켜 후보가 5개 미만/0개여도 억지로 채우지 않는다.
         List<ChatPolicyMatchResult> top = allMatches.stream()
                 .filter(match -> match.eligibilityResult().overallStatus() != EligibilityStatus.INELIGIBLE)
+                .filter(match -> policyAvailabilityEvaluator.evaluate(match.policy()).status() == PolicyAvailability.AVAILABLE)
                 .sorted(ChatPolicyMatchComparator.comparator())
                 .limit(TOP_N)
                 .toList();
