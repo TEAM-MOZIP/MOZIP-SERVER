@@ -43,6 +43,8 @@ out/
 .env.*
 !.env.example
 
+deploy/.deploy-tags.env
+
 src/main/resources/application-local.yml
 src/main/resources/application-local.yaml
 src/main/resources/application-secret.yml
