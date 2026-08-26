@@ -38,6 +38,31 @@ jobs:
           cache: gradle
 
       - name: Run tests against local PostgreSQL service
+        env:
+          # application-local.yml은 .gitignore 대상이라 CI 체크아웃에는 존재하지 않는다.
+          # application.yml의 spring.profiles.active=local이 기본으로 켜지므로, 그 프로필이
+          # 원래 application-local.yml에서 공급하던 값 중 컨텍스트 로딩에 실제로 필요한 값만
+          # CI 전용 환경변수로 명시적으로 주입한다(로컬 개발 방식 자체는 변경하지 않음).
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5433/mozip
+          SPRING_DATASOURCE_USERNAME: mozip
+          SPRING_DATASOURCE_PASSWORD: mozip
+          SPRING_JPA_HIBERNATE_DDL_AUTO: "validate"
+          SPRING_JPA_OPEN_IN_VIEW: "false"
+          SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/testdata
+          # JwtProperties의 accessTokenExpireSeconds/refreshTokenExpireSeconds는 long 타입이라
+          # 값이 전혀 없으면 바인딩 자체가 실패한다(String과 달리 null을 받을 수 없음). 값은
+          # 이미 저장소에 공개돼 있는 src/test/resources/application-test.yml과 동일하게 맞췄다.
+          #
+          # JWT_SECRET은 production secret이 아니다 — src/test/resources/application-test.yml(git
+          # 추적 대상, 이미 공개됨)에 있는 CI/테스트 전용 fixture 값을 그대로 재사용한 것이며,
+          # application-local.yml(gitignored)의 값과도 다르고 application-prod.yml은 별도로
+          # ${JWT_SECRET}만 참조해 실제 운영 secret은 EC2의 gitignored .env에서만 주입된다(Decision 8).
+          # JwtTokenProvider가 이 문자열을 Base64 디코딩 없이 그대로 UTF-8 byte로 사용해
+          # Keys.hmacShaKeyFor()에 넘기므로(io.jsonwebtoken), 최소 HS256 기준 32byte(256bit) 이상이
+          # 필요하다 — 이 값은 64byte(512bit)라 HS512까지도 만족한다.
+          JWT_SECRET: "ssrYB+/2oM4vlC0cwbdy2FzS8aaL2t4freUWilsY+tpW/kz4qT/HXAENUy/wTiHn"
+          JWT_ACCESS_TOKEN_EXPIRE_SECONDS: "1800"
+          JWT_REFRESH_TOKEN_EXPIRE_SECONDS: "1209600"
         run: ./gradlew test --no-daemon
 
   build-and-deploy:
