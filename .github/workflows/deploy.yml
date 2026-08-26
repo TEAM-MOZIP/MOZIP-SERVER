@@ -6,6 +6,7 @@ on:
       - main
     paths-ignore:
       - 'deploy/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
