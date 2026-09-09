@@ -67,6 +67,22 @@ class KakaoOAuthClientTest {
     }
 
     @Test
+    void 카카오_사용자_정보에서_nickname과_profile_image_url을_파싱한다() {
+        mockServer.expect(requestTo("https://kapi.kakao.com/v2/user/me"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {"id":123456789,"kakao_account":{"email":"test@kakao.com","profile":{"nickname":"모집이","profile_image_url":"https://example.com/profile.jpg"}}}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        KakaoUserInfoResponse response = kakaoOAuthClient.fetchUserInfo("kakao-access-token");
+
+        assertThat(response.kakaoAccount().profile().nickname()).isEqualTo("모집이");
+        assertThat(response.kakaoAccount().profile().profileImageUrl()).isEqualTo("https://example.com/profile.jpg");
+    }
+
+    @Test
     void 이메일_동의를_하지_않으면_email이_null이다() {
         mockServer.expect(requestTo("https://kapi.kakao.com/v2/user/me"))
                 .andExpect(method(HttpMethod.GET))
