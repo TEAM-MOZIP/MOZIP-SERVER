@@ -40,6 +40,12 @@ public class User {
     @Column(name = "provider_user_id", nullable = false, length = 100)
     private String providerUserId;
 
+    @Column(length = 255)
+    private String nickname;
+
+    @Column(name = "profile_image_url", length = 1000)
+    private String profileImageUrl;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -49,11 +55,30 @@ public class User {
     private LocalDateTime updatedAt;
 
     @Builder
-    public User(String email, String passwordHash, OAuthProvider provider, String providerUserId) {
+    public User(String email, String passwordHash, OAuthProvider provider, String providerUserId,
+                String nickname, String profileImageUrl) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.provider = provider;
         this.providerUserId = providerUserId;
+        this.nickname = nickname;
+        this.profileImageUrl = profileImageUrl;
+    }
+
+    /**
+     * Kakao 계정 표시정보(email/nickname/profileImageUrl)를 매 로그인마다 최신화한다.
+     * 값이 null이면(사용자가 해당 동의항목에 동의하지 않은 경우) 기존 값을 덮어쓰지 않는다.
+     */
+    public void syncKakaoProfile(String email, String nickname, String profileImageUrl) {
+        if (email != null) {
+            this.email = email;
+        }
+        if (nickname != null) {
+            this.nickname = nickname;
+        }
+        if (profileImageUrl != null) {
+            this.profileImageUrl = profileImageUrl;
+        }
     }
 
     @Override
