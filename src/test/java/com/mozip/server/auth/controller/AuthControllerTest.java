@@ -15,6 +15,7 @@ import com.mozip.server.auth.config.SecurityConfig;
 import com.mozip.server.auth.dto.KakaoLoginRequest;
 import com.mozip.server.auth.dto.RefreshTokenRequest;
 import com.mozip.server.auth.dto.TokenResponse;
+import com.mozip.server.auth.exception.DuplicateKakaoEmailException;
 import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.auth.service.AuthService;
 import com.mozip.server.user.dto.UserResponse;
@@ -58,6 +59,17 @@ class AuthControllerTest {
     }
 
     @Test
+    void 카카오_재로그인_시_email_충돌이면_409를_반환한다() throws Exception {
+        when(authService.loginWithKakao(any())).thenThrow(new DuplicateKakaoEmailException());
+
+        mockMvc.perform(post("/api/auth/kakao/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new KakaoLoginRequest("auth-code"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_KAKAO_EMAIL"));
+    }
+
+    @Test
     void 토큰_재발급은_토큰_없이_호출_가능하다() throws Exception {
         when(authService.refresh(any())).thenReturn(new TokenResponse("new-access", "new-refresh", 1800, false));
 
@@ -97,10 +109,13 @@ class AuthControllerTest {
     @Test
     void 내_정보_조회는_유효한_토큰이면_200이다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
-        when(authService.getMyInfo(eq(1L))).thenReturn(new UserResponse(1L, "test@kakao.com", OAuthProvider.KAKAO));
+        when(authService.getMyInfo(eq(1L))).thenReturn(new UserResponse(1L, "test@kakao.com", OAuthProvider.KAKAO,
+                "모집이", "https://example.com/profile.jpg"));
 
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("test@kakao.com"));
+                .andExpect(jsonPath("$.email").value("test@kakao.com"))
+                .andExpect(jsonPath("$.nickname").value("모집이"))
+                .andExpect(jsonPath("$.profileImageUrl").value("https://example.com/profile.jpg"));
     }
 }
