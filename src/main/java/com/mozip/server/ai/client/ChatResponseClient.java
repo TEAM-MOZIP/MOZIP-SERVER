@@ -36,7 +36,7 @@ public class ChatResponseClient {
     private static RestClient buildRestClient(RestClient.Builder restClientBuilder, MozipAiProperties properties) {
         ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()))
-                .withReadTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()));
+                .withReadTimeout(Duration.ofSeconds(properties.resolvedChatTimeoutSeconds()));
         ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.detect().build(settings);
 
         return restClientBuilder
