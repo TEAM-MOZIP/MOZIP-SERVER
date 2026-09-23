@@ -42,6 +42,22 @@ class ChatPolicyRelevanceScorerTest {
         assertThat(ChatPolicyRelevanceScorer.matchesTitle(policy, List.of("건강보험료"))).isTrue();
     }
 
+    @Test
+    void 제목_요약_매칭은_본문_지원대상만_걸린_정책을_제외한다() {
+        Policy summaryHit = policy("생활안정자금", "대학생 생활비 지원", null);
+        Policy bodyOnly = Policy.builder()
+                .title("생활안정자금 융자")
+                .targetDescription("청년, 대학생, 구직자 등")
+                .applicationType(ApplicationType.ALWAYS)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.ALWAYS_OPEN)
+                .build();
+
+        assertThat(ChatPolicyRelevanceScorer.matchesTitleOrSummary(summaryHit, List.of("대학생"))).isTrue();
+        assertThat(ChatPolicyRelevanceScorer.matchesTitleOrSummary(bodyOnly, List.of("대학생"))).isFalse();
+        assertThat(ChatPolicyRelevanceScorer.score(bodyOnly, List.of("대학생"))).isEqualTo(1);
+    }
+
     private Policy policy(String title, String summary, String benefitDescription) {
         return Policy.builder()
                 .title(title)

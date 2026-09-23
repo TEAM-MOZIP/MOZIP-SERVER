@@ -58,6 +58,17 @@ public final class ChatPolicyRelevanceScorer {
                 .anyMatch(keyword -> !keyword.isEmpty() && title.contains(keyword));
     }
 
+    /** 키워드 중 하나라도 제목이나 요약에 포함되는지. 본문(지원대상·지원내용)에만 스치듯 나온 정책과 구분할 때 쓴다. */
+    public static boolean matchesTitleOrSummary(Policy policy, List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return false;
+        }
+        String titleAndSummary = normalize(policy.getTitle()) + " " + normalize(policy.getSummary());
+        return keywords.stream()
+                .map(ChatPolicyRelevanceScorer::normalize)
+                .anyMatch(keyword -> !keyword.isEmpty() && titleAndSummary.contains(keyword));
+    }
+
     private static String normalize(String text) {
         if (text == null) {
             return "";
