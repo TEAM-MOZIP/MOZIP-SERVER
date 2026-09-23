@@ -299,6 +299,7 @@ class ChatServiceTest {
         setUp();
         ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract("신청 기간은?")).thenReturn(extraction);
+        when(conditionExtractionService.extract("국민취업지원제도 알려줘")).thenReturn(null);
         when(chatPolicySearchService.search(any())).thenReturn(List.of());
 
         @SuppressWarnings("unchecked")
@@ -312,8 +313,9 @@ class ChatServiceTest {
         assertThat(historyCaptor.getValue()).hasSize(1);
         assertThat(historyCaptor.getValue().get(0).message()).isEqualTo("국민취업지원제도 알려줘");
         assertThat(historyCaptor.getValue().get(0).reply()).isEqualTo("국민취업지원제도는 ~ 제도입니다.");
-        // conditions/extract는 history 없이 현재 message만으로 호출된다(Intent 판단 범위 원칙).
+        // 현재 message 추출 + 조건 이어받기용 이전 사용자 메시지 추출이 각각 호출된다.
         verify(conditionExtractionService).extract("신청 기간은?");
+        verify(conditionExtractionService).extract("국민취업지원제도 알려줘");
     }
 
     @Test
@@ -426,6 +428,146 @@ class ChatServiceTest {
         verify(policyAvailabilityEvaluator, never()).evaluate(any());
     }
 
+    @Test
+    void 이전_턴에서_말한_조건을_이어받아_조건_기반_탐색을_수행한다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract("월세 관련해서"))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(conditionExtractionService.extract("안녕 나는 스무살 여자야. 청년 지원 정책 알려줘"))
+                .thenReturn(extraction(Gender.FEMALE, 20, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "서울시 청년월세지원", "청년 월세 부담 완화", EligibilityStatus.NEEDS_REVIEW)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        List<ChatTurn> history = List.of(new ChatTurn("안녕 나는 스무살 여자야. 청년 지원 정책 알려줘", "어떤 분야를 찾으세요?"));
+        ChatResponse response = chatService.handle(new ChatRequest("월세 관련해서", history));
+
+        ArgumentCaptor<ChatCondition> conditionCaptor = ArgumentCaptor.forClass(ChatCondition.class);
+        verify(chatPolicySearchService).search(conditionCaptor.capture());
+        assertThat(conditionCaptor.getValue().age()).isEqualTo(20);
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(2L);
+    }
+
+    @Test
+    void 같은_조건_축이면_현재_메시지가_이전_턴보다_우선한다() {
+        setUp();
+        when(conditionExtractionService.extract("아 사실 25살이야"))
+                .thenReturn(extraction(null, 25, null, null, null, null, null, List.of()));
+        when(conditionExtractionService.extract("20살인데 월세 지원 알려줘"))
+                .thenReturn(extraction(null, 20, "SEOUL", null, null, null, null, List.of()));
+        when(regionRepository.findByCode("SEOUL")).thenReturn(Optional.of(region(10L, "SEOUL")));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of());
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        List<ChatTurn> history = List.of(new ChatTurn("20살인데 월세 지원 알려줘", "..."));
+        chatService.handle(new ChatRequest("아 사실 25살이야", history));
+
+        ArgumentCaptor<ChatCondition> conditionCaptor = ArgumentCaptor.forClass(ChatCondition.class);
+        verify(chatPolicySearchService).search(conditionCaptor.capture());
+        assertThat(conditionCaptor.getValue().age()).isEqualTo(25);
+        assertThat(conditionCaptor.getValue().regionId()).isEqualTo(10L);
+    }
+
+    @Test
+    void 조건도_키워드도_없는_후속_질문은_history로_조건을_추출하지_않고_일반_경로로_처리한다() {
+        setUp();
+        when(conditionExtractionService.extract("신청 기간은?"))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("history 기반 답변");
+
+        List<ChatTurn> history = List.of(new ChatTurn("25살 취업 지원 알려줘", "국민취업지원제도가 있어요."));
+        ChatResponse response = chatService.handle(new ChatRequest("신청 기간은?", history));
+
+        assertThat(response.reply()).isEqualTo("history 기반 답변");
+        verify(conditionExtractionService, never()).extract("25살 취업 지원 알려줘");
+        verify(chatPolicySearchService, never()).search(any());
+    }
+
+    @Test
+    void 조건_탐색에서_키워드_관련_정책만_후보로_남기고_관련도_순으로_정렬한다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, 20, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "월세 지원", null, EligibilityStatus.NEEDS_REVIEW),
+                matchResult(3L, "서울시 청년월세지원", "청년 월세", EligibilityStatus.NEEDS_REVIEW)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("20살인데 청년 월세 알려줘"));
+
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(3L, 2L);
+    }
+
+    @Test
+    void 조건_탐색에서_키워드와_관련된_정책이_없으면_기존_정렬로_대체한다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, 20, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("20살인데 월세 알려줘"));
+
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(1L);
+    }
+
+    @Test
+    void 조건이_없어도_키워드가_제목에_걸리는_정책이_있으면_정책_목록을_grounding으로_전달한다() {
+        setUp();
+        stubAllAvailable();
+        Policy rent = policy(2L, "청년월세지원");
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도"), rent));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "국민취업지원제도", null, EligibilityStatus.NEEDS_REVIEW),
+                matchResult(2L, "청년월세지원", null, EligibilityStatus.NEEDS_REVIEW)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+                .thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("청년 월세"));
+
+        assertThat(groundingCaptor.getValue()).extracting("policyId").containsExactly(2L);
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(2L);
+        ArgumentCaptor<ChatCondition> conditionCaptor = ArgumentCaptor.forClass(ChatCondition.class);
+        verify(chatPolicySearchService).search(conditionCaptor.capture());
+        assertThat(conditionCaptor.getValue().age()).isNull();
+    }
+
+    @Test
+    void 키워드가_정책_본문에만_있으면_정책_목록이_아닌_일반_응답으로_처리한다() {
+        setUp();
+        Policy policy = Policy.builder()
+                .title("저소득주민 건강보험료 지원")
+                .summary("기준중위소득 50% 이하 가구 지원")
+                .applicationType(ApplicationType.ALWAYS)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.ALWAYS_OPEN)
+                .build();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(policyRepository.findAll()).thenReturn(List.of(policy));
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("용어 설명");
+
+        ChatResponse response = chatService.handle(request("기준중위소득이 뭐야?"));
+
+        assertThat(response.reply()).isEqualTo("용어 설명");
+        assertThat(response.matchedPolicies()).isEmpty();
+        verify(chatPolicySearchService, never()).search(any());
+    }
+
     private ChatRequest request(String message) {
         return new ChatRequest(message, List.of());
     }
@@ -446,6 +588,18 @@ class ChatServiceTest {
                 .applicationEndDate(applicationEndDate)
                 .regionScope(RegionScope.NATIONAL)
                 .status(PolicyStatus.OPEN)
+                .build();
+        ReflectionTestUtils.setField(policy, "id", id);
+        return new ChatPolicyMatchResult(policy, new PolicyEligibilityResult(status, "테스트", List.of()));
+    }
+
+    private ChatPolicyMatchResult matchResult(Long id, String title, String summary, EligibilityStatus status) {
+        Policy policy = Policy.builder()
+                .title(title)
+                .summary(summary)
+                .applicationType(ApplicationType.ALWAYS)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.ALWAYS_OPEN)
                 .build();
         ReflectionTestUtils.setField(policy, "id", id);
         return new ChatPolicyMatchResult(policy, new PolicyEligibilityResult(status, "테스트", List.of()));
