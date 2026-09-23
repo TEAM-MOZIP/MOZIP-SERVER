@@ -45,6 +45,17 @@ class ChatKeywordExtractorTest {
     }
 
     @Test
+    void 지급_안내처럼_정책_제목에_흔한_단어는_키워드가_아니다() {
+        assertThat(ChatKeywordExtractor.extract("효행장려금 지급 정책에 대해서 알려줘")).containsExactly("효행장려금");
+    }
+
+    @Test
+    void 위한_대한처럼_문장을_잇는_말은_키워드가_아니다() {
+        assertThat(ChatKeywordExtractor.extract("20대 여성을 위한 지원 정책")).isEmpty();
+        assertThat(ChatKeywordExtractor.extract("대학생에게 도움이 될 만한 주거 정책")).containsExactly("대학생", "주거");
+    }
+
+    @Test
     void 빈_메시지는_빈_목록을_반환한다() {
         assertThat(ChatKeywordExtractor.extract(null)).isEmpty();
         assertThat(ChatKeywordExtractor.extract("  ")).isEmpty();
