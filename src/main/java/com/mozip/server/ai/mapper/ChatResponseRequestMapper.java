@@ -6,6 +6,7 @@ import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.chat.dto.ChatPolicyMatchResult;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.entity.ApplicationType;
+import com.mozip.server.policy.entity.PolicyApplicationInfo;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -20,14 +21,27 @@ public class ChatResponseRequestMapper {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final String NO_ELIGIBILITY_TEXT = "자격 조건 정보가 등록되지 않음";
     private static final String NO_SUMMARY_TEXT = "요약 정보가 등록되지 않음";
+    /** AI에 넘기는 대화 이력은 최근 턴만 쓴다. 이력이 길수록 프롬프트가 커져 응답이 느려진다. */
+    static final int MAX_HISTORY_TURNS = 4;
+    /** 이전 챗봇 답변은 맥락 파악용이라 앞부분만 넘긴다. */
+    static final int MAX_REPLY_LENGTH = 500;
+    private static final String TRUNCATED_SUFFIX = "…(생략)";
 
     private ChatResponseRequestMapper() {
     }
 
     public static List<ChatTurn> toAiChatTurns(List<com.mozip.server.chat.dto.ChatTurn> history) {
-        return history.stream()
-                .map(turn -> new ChatTurn(turn.message(), turn.reply()))
+        int from = Math.max(0, history.size() - MAX_HISTORY_TURNS);
+        return history.subList(from, history.size()).stream()
+                .map(turn -> new ChatTurn(turn.message(), truncateReply(turn.reply())))
                 .toList();
+    }
+
+    private static String truncateReply(String reply) {
+        if (reply == null || reply.length() <= MAX_REPLY_LENGTH) {
+            return reply;
+        }
+        return reply.substring(0, MAX_REPLY_LENGTH) + TRUNCATED_SUFFIX;
     }
 
     public static List<GroundingPolicy> toGroundingPolicies(List<ChatPolicyMatchResult> matches) {
@@ -36,11 +50,21 @@ public class ChatResponseRequestMapper {
                         match.policy().getId(),
                         match.policy().getTitle(),
                         match.eligibilityResult().overallStatus(),
-                        match.policy().getApplicationEndDate()))
+                        match.policy().getApplicationEndDate(),
+                        blankToNull(match.policy().getSummary())))
                 .toList();
     }
 
     public static PolicyDetailGrounding toPolicyDetailGrounding(PolicyDetailResponse detail) {
+        return toPolicyDetailGrounding(detail, null);
+    }
+
+    /**
+     * 신청 정보(policy_application_info)가 있으면 신청 방법·준비서류·문의처·신청 주소까지 담는다.
+     * 신청 방법은 신청 정보의 절차를 우선하고, 없으면 정책의 신청 방법을 쓴다.
+     */
+    public static PolicyDetailGrounding toPolicyDetailGrounding(PolicyDetailResponse detail,
+                                                                PolicyApplicationInfo applicationInfo) {
         String summary = detail.summary() != null && !detail.summary().isBlank()
                 ? detail.summary()
                 : detail.description() != null && !detail.description().isBlank() ? detail.description() : NO_SUMMARY_TEXT;
@@ -53,7 +77,14 @@ public class ChatResponseRequestMapper {
                 summary,
                 eligibility,
                 applicationPeriodText(detail.applicationType(), detail.applicationStartDate(), detail.applicationEndDate()),
-                detail.organizationName()
+                detail.organizationName(),
+                blankToNull(detail.benefitDescription()),
+                applicationInfo != null && blankToNull(applicationInfo.getApplicationProcedure()) != null
+                        ? applicationInfo.getApplicationProcedure()
+                        : blankToNull(detail.applicationMethod()),
+                applicationInfo != null ? blankToNull(applicationInfo.getRequiredDocumentsText()) : null,
+                applicationInfo != null ? blankToNull(applicationInfo.getContactInfo()) : null,
+                applicationInfo != null ? blankToNull(applicationInfo.getApplicationUrl()) : null
         );
     }
 
@@ -72,5 +103,9 @@ public class ChatResponseRequestMapper {
         String start = startDate != null ? startDate.format(DATE_FORMATTER) : "확인 필요";
         String end = endDate != null ? endDate.format(DATE_FORMATTER) : "확인 필요";
         return start + " ~ " + end;
+    }
+
+    private static String blankToNull(String value) {
+        return value != null && !value.isBlank() ? value : null;
     }
 }
