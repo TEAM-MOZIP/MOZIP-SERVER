@@ -3,6 +3,7 @@ package com.mozip.server.recommendation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.mozip.server.ai.client.RecommendationReasonClient;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.entity.ApplicationType;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -61,6 +63,14 @@ class PolicyEvaluationServiceTest {
 
     @Autowired
     private EntityManager entityManager;
+
+    /**
+     * AI 추천 이유 생성은 외부 MOZIP-AI 서버 호출이다. 실제 서버가 떠 있는지에 따라 overallReason이
+     * 달라지지 않도록 가짜로 바꾼다 — mock은 null을 반환하므로 규칙 기반 overallReason이 유지된다.
+     * AI 응답으로 사유가 교체되는 경로는 PolicyEvaluationServiceReasonWiringTest가 검증한다.
+     */
+    @MockitoBean
+    private RecommendationReasonClient recommendationReasonClient;
 
     @Test
     void 적격성과_신청가능여부를_정상적으로_조합한다() {
