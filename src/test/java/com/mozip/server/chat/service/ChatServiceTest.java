@@ -33,6 +33,7 @@ import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
+import com.mozip.server.policy.repository.PolicyApplicationInfoRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.service.PolicyService;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
@@ -75,11 +76,15 @@ class ChatServiceTest {
     @Mock
     private PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
 
+    @Mock
+    private PolicyApplicationInfoRepository policyApplicationInfoRepository;
+
     private ChatService chatService;
 
     private void setUp() {
         chatService = new ChatService(conditionExtractionService, chatPolicySearchService, chatResponseGenerationService,
-                policyService, policyRepository, regionRepository, policyAvailabilityEvaluator);
+                policyService, policyRepository, regionRepository, policyAvailabilityEvaluator,
+                policyApplicationInfoRepository);
     }
 
     private void stubAllAvailable() {
@@ -451,6 +456,47 @@ class ChatServiceTest {
     }
 
     @Test
+    void 되묻기에서는_이전_턴의_주제에도_맞는_정책을_먼저_고른다() {
+        setUp();
+        stubAllAvailable();
+        String first = "양천구에 사는 25살 여자 대학생을 위한 정책 추천해줘";
+        when(conditionExtractionService.extract("교육 관련해서 궁금해"))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(conditionExtractionService.extract(first))
+                .thenReturn(extraction(Gender.FEMALE, 25, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "평생교육 이용권", "성인 대상 교육비 지원", EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "대학생 교육 지원", "대학생 대상 교육 프로그램", EligibilityStatus.NEEDS_REVIEW)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        List<ChatTurn> history = List.of(new ChatTurn(first, "대학생 정책이에요."));
+        ChatResponse response = chatService.handle(new ChatRequest("교육 관련해서 궁금해", history));
+
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(2L);
+    }
+
+    @Test
+    void 사용자가_언급하지_않은_대상_집단_전용_정책은_추천하지_않는다() {
+        setUp();
+        stubAllAvailable();
+        String first = "양천구에 사는 25살 여자 대학생을 위한 정책 추천해줘";
+        when(conditionExtractionService.extract("교육 관련해서 궁금해"))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(conditionExtractionService.extract(first))
+                .thenReturn(extraction(Gender.FEMALE, 25, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "어업인안전조업교육지원", "어업인 대상 안전조업 교육", EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "중.장기복무 전역예정군인 전직교육서비스", "전직 교육", EligibilityStatus.ELIGIBLE),
+                matchResult(3L, "평생교육 이용권", "성인 대상 교육비 지원", EligibilityStatus.NEEDS_REVIEW)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        List<ChatTurn> history = List.of(new ChatTurn(first, "대학생 정책이에요."));
+        ChatResponse response = chatService.handle(new ChatRequest("교육 관련해서 궁금해", history));
+
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(3L);
+    }
+
+    @Test
     void 같은_조건_축이면_현재_메시지가_이전_턴보다_우선한다() {
         setUp();
         when(conditionExtractionService.extract("아 사실 25살이야"))
@@ -505,18 +551,98 @@ class ChatServiceTest {
     }
 
     @Test
-    void 조건_탐색에서_키워드와_관련된_정책이_없으면_기존_정렬로_대체한다() {
+    void 조건_탐색에서_키워드와_관련된_정책이_없으면_관련_없는_정책으로_채우지_않는다() {
         setUp();
         stubAllAvailable();
         when(conditionExtractionService.extract(any()))
                 .thenReturn(extraction(null, 20, null, null, null, null, null, List.of()));
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+                .thenReturn("못 찾았어요");
 
         ChatResponse response = chatService.handle(request("20살인데 월세 알려줘"));
 
+        assertThat(response.matchedPolicies()).isEmpty();
+    }
+
+    @Test
+    void 조건_탐색은_제목_요약에_걸린_정책을_본문에만_걸린_정책보다_우선한다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, 22, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResultWithTarget(1L, "생활안정자금 융자", "청년, 대학생, 구직자 등", EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "일반 상환 학자금대출", null, EligibilityStatus.NEEDS_REVIEW)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("22살 대학생 정책 알려줘"));
+
+        // "대학생" → 동의어 "학자금"으로 제목이 걸린 2번만 남고, 지원대상 본문에만 "대학생"이 있는 1번은 빠진다.
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(2L);
+    }
+
+    @Test
+    void 제목_요약에_걸린_정책이_없으면_본문에_걸린_정책을_보여준다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, 22, null, null, null, null, null, List.of()));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResultWithTarget(1L, "생활안정자금 융자", "청년, 대학생, 구직자 등", EligibilityStatus.ELIGIBLE),
+                matchResult(2L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE)));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn("답변");
+
+        ChatResponse response = chatService.handle(request("22살 대학생 정책 알려줘"));
+
         assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(1L);
+    }
+
+    @Test
+    void 같은_제목의_정책이_여러_개면_첫_정책을_설명하고_나머지는_비슷한_정책_카드로_붙인다() {
+        setUp();
+        stubAllAvailable();
+        when(conditionExtractionService.extract(any()))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(policyRepository.findAll()).thenReturn(List.of(
+                policy(3L, "생계지원금 지급"), policy(2L, "효행장려금 지급"), policy(1L, "효행장려금 지급")));
+        when(policyService.getPolicyDetail(1L, null)).thenReturn(policyDetail(1L, "효행장려금 지급"));
+        when(chatPolicySearchService.search(any())).thenReturn(List.of(
+                matchResult(1L, "효행장려금 지급", null, EligibilityStatus.NEEDS_REVIEW),
+                matchResult(2L, "효행장려금 지급", null, EligibilityStatus.NEEDS_REVIEW),
+                matchResult(3L, "생계지원금 지급", null, EligibilityStatus.ELIGIBLE)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<com.mozip.server.ai.dto.PolicyDetailGrounding> detailCaptor =
+                ArgumentCaptor.forClass(com.mozip.server.ai.dto.PolicyDetailGrounding.class);
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), detailCaptor.capture(), anyList(),
+                anyList())).thenReturn("정책 설명");
+
+        ChatResponse response = chatService.handle(request("효행장려금 지급 정책에 대해서 알려줘"));
+
+        assertThat(detailCaptor.getValue().title()).isEqualTo("효행장려금 지급");
+        verify(policyService).getPolicyDetail(1L, null);
+        // "지급"은 흔한 단어라 키워드가 아니므로 생계지원금 지급(3번)은 비슷한 정책으로 붙지 않는다.
+        assertThat(response.matchedPolicies()).extracting("policyId").containsExactly(1L, 2L);
+        assertThat(groundingCaptor.getValue()).extracting("policyId").containsExactly(2L);
+    }
+
+    @Test
+    void 이전_턴에_조건이_있어도_정책_이름을_물으면_해당_정책을_설명한다() {
+        setUp();
+        when(conditionExtractionService.extract("국민취업지원제도가 뭐야?"))
+                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
+        when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
+        when(policyService.getPolicyDetail(1L, null)).thenReturn(policyDetail(1L, "국민취업지원제도"));
+        when(chatResponseGenerationService.generate(any(), anyList(), any(), anyList(), anyList())).thenReturn("정책 설명");
+
+        List<ChatTurn> history = List.of(new ChatTurn("나 25살이야", "어떤 분야를 찾으세요?"));
+        chatService.handle(new ChatRequest("국민취업지원제도가 뭐야?", history));
+
+        verify(policyService).getPolicyDetail(1L, null);
+        verify(conditionExtractionService, never()).extract("나 25살이야");
     }
 
     @Test
@@ -597,6 +723,19 @@ class ChatServiceTest {
         Policy policy = Policy.builder()
                 .title(title)
                 .summary(summary)
+                .applicationType(ApplicationType.ALWAYS)
+                .regionScope(RegionScope.NATIONAL)
+                .status(PolicyStatus.ALWAYS_OPEN)
+                .build();
+        ReflectionTestUtils.setField(policy, "id", id);
+        return new ChatPolicyMatchResult(policy, new PolicyEligibilityResult(status, "테스트", List.of()));
+    }
+
+    private ChatPolicyMatchResult matchResultWithTarget(Long id, String title, String targetDescription,
+                                                        EligibilityStatus status) {
+        Policy policy = Policy.builder()
+                .title(title)
+                .targetDescription(targetDescription)
                 .applicationType(ApplicationType.ALWAYS)
                 .regionScope(RegionScope.NATIONAL)
                 .status(PolicyStatus.ALWAYS_OPEN)
