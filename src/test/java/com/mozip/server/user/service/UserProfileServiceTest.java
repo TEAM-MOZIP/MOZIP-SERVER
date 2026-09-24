@@ -166,7 +166,7 @@ class UserProfileServiceTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void 동일_사용자가_동시에_최초_프로필을_등록하면_하나만_성공한다() throws Exception {
+    void 동일_사용자가_동시에_최초_프로필을_등록해도_프로필은_하나만_생성된다() throws Exception {
         User user = createUser("profile-concurrent@example.com", "profile-concurrent-1");
         Long regionId = selectableRegionId();
         UserProfileUpdateRequest request = new UserProfileUpdateRequest(
@@ -208,8 +208,13 @@ class UserProfileServiceTest {
             }
             executor.shutdown();
 
-            assertThat(successCount).isEqualTo(1);
-            assertThat(conflictCount).isEqualTo(1);
+            // upsert라 실행 타이밍에 따라 결과가 두 가지로 갈린다.
+            // - 둘 다 "프로필 없음"을 보고 동시에 생성 → 하나 성공, 하나는 unique 제약 충돌
+            // - 한쪽 생성이 커밋된 뒤 다른 쪽이 조회 → 다른 쪽은 수정으로 처리되어 둘 다 성공
+            // 어느 경우든 예상치 못한 예외 없이 끝나고, 프로필은 하나만 남아야 한다.
+            assertThat(successCount + conflictCount).isEqualTo(threadCount);
+            assertThat(successCount).isGreaterThanOrEqualTo(1);
+            assertThat(conflictCount).isLessThanOrEqualTo(1);
             assertThat(userProfileRepository.findByUserId(user.getId())).isPresent();
         } finally {
             userRepository.deleteById(user.getId());

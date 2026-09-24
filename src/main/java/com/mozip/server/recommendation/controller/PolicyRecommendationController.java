@@ -1,6 +1,7 @@
 package com.mozip.server.recommendation.controller;
 
 import com.mozip.server.global.dto.PageResponse;
+import com.mozip.server.policy.domain.AvailabilityFilter;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.recommendation.dto.PolicyPackageResponse;
@@ -37,9 +38,11 @@ public class PolicyRecommendationController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
+            @RequestParam(required = false) AvailabilityFilter availability,
             @RequestParam(required = false, defaultValue = "false") boolean onlyEligible,
             @PageableDefault(size = 20) Pageable pageable) {
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, null);
+        PolicySearchRequest condition =
+                new PolicySearchRequest(keyword, categoryId, regionId, status, null, availability);
         return policyRecommendationService.getRecommendations(Long.valueOf(userId), condition, onlyEligible, pageable);
     }
 

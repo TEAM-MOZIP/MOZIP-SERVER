@@ -7,7 +7,9 @@ import com.mozip.server.bookmark.entity.Bookmark;
 import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.AgeGroup;
+import com.mozip.server.policy.domain.AvailabilityFilter;
 import com.mozip.server.policy.domain.PolicyAvailability;
+import com.mozip.server.policy.dto.CategoryResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
@@ -25,6 +27,7 @@ import com.mozip.server.policy.exception.PolicyNotFoundException;
 import com.mozip.server.policy.repository.CategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
+import com.mozip.server.region.dto.RegionResponse;
 import com.mozip.server.region.entity.Region;
 import com.mozip.server.region.repository.RegionRepository;
 import com.mozip.server.user.entity.OAuthProvider;
@@ -32,6 +35,7 @@ import com.mozip.server.user.entity.User;
 import com.mozip.server.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -352,6 +356,92 @@ class PolicyServiceTest {
                 new PolicySearchRequest(KEYWORD + "-상한만", null, null, null, AgeGroup.AGE_25_29), PageRequest.of(0, 20));
 
         assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(overlapping.getId());
+    }
+
+    @Test
+    void 정책_목록과_공개_추천_목록은_정책별_카테고리를_함께_반환한다() {
+        Category category = createCategory("LIST_CAT", KEYWORD + "-목록카테고리");
+        Policy withCategory = createPolicy(KEYWORD + "-카테고리-있음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+                null, null);
+        Policy withoutCategory = createPolicy(KEYWORD + "-카테고리-없음", PolicyStatus.ALWAYS_OPEN,
+                ApplicationType.ALWAYS, null, null);
+        linkCategory(withCategory, category);
+        PolicySearchRequest condition = new PolicySearchRequest(KEYWORD + "-카테고리", null, null, null, null);
+
+        List<PolicySummaryResponse> searched =
+                policyService.searchPolicies(condition, PageRequest.of(0, 20)).content();
+        List<PolicySummaryResponse> recommended =
+                policyService.getRecommendedPolicies(condition, PageRequest.of(0, 20)).content();
+
+        for (List<PolicySummaryResponse> content : List.of(searched, recommended)) {
+            PolicySummaryResponse linked = content.stream()
+                    .filter(response -> response.id().equals(withCategory.getId())).findFirst().orElseThrow();
+            PolicySummaryResponse unlinked = content.stream()
+                    .filter(response -> response.id().equals(withoutCategory.getId())).findFirst().orElseThrow();
+            assertThat(linked.categories()).extracting(CategoryResponse::name).containsExactly(category.getName());
+            assertThat(unlinked.categories()).isEmpty();
+        }
+    }
+
+    @Test
+    void 정책_목록과_공개_추천_목록은_정책별_지역을_함께_반환하고_전국_정책은_비어_있다() {
+        Region region = regionRepository.save(Region.builder().code("LIST_REGION").name("목록테스트지역").build());
+        Policy regionalPolicy = createRegionalPolicy(KEYWORD + "-지역목록-지역");
+        linkRegion(regionalPolicy, region);
+        Policy nationalPolicy = createPolicy(KEYWORD + "-지역목록-전국", PolicyStatus.ALWAYS_OPEN,
+                ApplicationType.ALWAYS, null, null);
+        PolicySearchRequest condition = new PolicySearchRequest(KEYWORD + "-지역목록", null, null, null, null);
+
+        List<PolicySummaryResponse> searched =
+                policyService.searchPolicies(condition, PageRequest.of(0, 20)).content();
+        List<PolicySummaryResponse> recommended =
+                policyService.getRecommendedPolicies(condition, PageRequest.of(0, 20)).content();
+
+        for (List<PolicySummaryResponse> content : List.of(searched, recommended)) {
+            PolicySummaryResponse regional = content.stream()
+                    .filter(response -> response.id().equals(regionalPolicy.getId())).findFirst().orElseThrow();
+            PolicySummaryResponse national = content.stream()
+                    .filter(response -> response.id().equals(nationalPolicy.getId())).findFirst().orElseThrow();
+            assertThat(regional.regions()).extracting(RegionResponse::name).containsExactly(region.getName());
+            assertThat(national.regionScope()).isEqualTo(RegionScope.NATIONAL);
+            assertThat(national.regions()).isEmpty();
+        }
+    }
+
+    @Test
+    void 상태_필터는_오늘_기준_신청_가능_상태로_정책을_거른다() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        String prefix = KEYWORD + "-상태필터";
+        Policy alwaysOpen = createPolicy(prefix + "-상시", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        Policy within = createPolicy(prefix + "-접수중", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                today.minusDays(10), today.plusDays(10));
+        Policy closingSoon = createPolicy(prefix + "-마감임박", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                today.minusDays(10), today.plusDays(2));
+        Policy upcoming = createPolicy(prefix + "-예정", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                today.plusDays(5), today.plusDays(30));
+        Policy ended = createPolicy(prefix + "-종료", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                today.minusDays(30), today.minusDays(1));
+        Policy unknown = createPolicy(prefix + "-미상", PolicyStatus.OPEN, ApplicationType.UNKNOWN, null, null);
+        Policy closed = createPolicy(prefix + "-마감처리", PolicyStatus.CLOSED, ApplicationType.ALWAYS, null, null);
+
+        assertThat(searchIds(prefix, AvailabilityFilter.OPEN))
+                .containsExactlyInAnyOrder(alwaysOpen.getId(), within.getId(), closingSoon.getId());
+        assertThat(searchIds(prefix, AvailabilityFilter.CLOSING_SOON)).containsExactly(closingSoon.getId());
+        assertThat(searchIds(prefix, AvailabilityFilter.UPCOMING)).containsExactly(upcoming.getId());
+        assertThat(searchIds(prefix, null)).contains(ended.getId(), unknown.getId(), closed.getId());
+
+        List<Long> recommendedOpenIds = policyService.getRecommendedPolicies(
+                        new PolicySearchRequest(prefix, null, null, null, null, AvailabilityFilter.OPEN),
+                        PageRequest.of(0, 20))
+                .content().stream().map(PolicySummaryResponse::id).toList();
+        assertThat(recommendedOpenIds)
+                .containsExactlyInAnyOrder(alwaysOpen.getId(), within.getId(), closingSoon.getId());
+    }
+
+    private List<Long> searchIds(String keyword, AvailabilityFilter availability) {
+        return policyService.searchPolicies(
+                        new PolicySearchRequest(keyword, null, null, null, null, availability), PageRequest.of(0, 20))
+                .content().stream().map(PolicySummaryResponse::id).toList();
     }
 
     @Test

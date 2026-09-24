@@ -25,6 +25,7 @@ import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.evaluator.PolicyEligibilityEvaluator;
 import com.mozip.server.recommendation.evaluator.PolicyRecommendationComparator;
+import com.mozip.server.region.entity.Region;
 import com.mozip.server.user.entity.UserProfile;
 import com.mozip.server.user.exception.UserProfileNotFoundException;
 import com.mozip.server.user.repository.UserProfileRepository;
@@ -121,12 +122,15 @@ public class PolicyRecommendationService {
         Set<Long> bookmarkedPolicyIds = exposedPolicyIds.isEmpty()
                 ? Set.of()
                 : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, exposedPolicyIds));
+        Map<Long, List<Region>> regionsByPolicyId = groupRegionsByPolicyId(exposedPolicyIds);
 
         return grouped.entrySet().stream()
                 .map(entry -> PolicyPackageResponse.from(entry.getKey(),
                         entry.getValue().stream()
                                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
-                                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()), null))
+                                        candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()), null,
+                                        categoriesByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
+                                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of())))
                                 .toList()))
                 .toList();
     }
@@ -140,7 +144,8 @@ public class PolicyRecommendationService {
                 PolicySpecifications.keywordContains(condition.keyword()),
                 PolicySpecifications.hasCategory(condition.categoryId()),
                 PolicySpecifications.availableInRegion(condition.regionId()),
-                PolicySpecifications.hasStatus(condition.status())
+                PolicySpecifications.hasStatus(condition.status()),
+                PolicySpecifications.hasAvailability(condition.availability(), policyAvailabilityEvaluator.today())
         );
         List<Policy> policies = policyRepository.findAll(spec, Sort.unsorted());
 
@@ -200,6 +205,15 @@ public class PolicyRecommendationService {
                         Collectors.mapping(PolicyCategory::getCategory, Collectors.toList())));
     }
 
+    private Map<Long, List<Region>> groupRegionsByPolicyId(List<Long> policyIds) {
+        if (policyIds.isEmpty()) {
+            return Map.of();
+        }
+        return policyRegionRepository.findByPolicyIdIn(policyIds).stream()
+                .collect(Collectors.groupingBy(policyRegion -> policyRegion.getPolicy().getId(),
+                        Collectors.mapping(PolicyRegion::getRegion, Collectors.toList())));
+    }
+
     private PageResponse<PolicyRecommendationResponse> toPageResponse(List<PolicyRecommendationCandidate> candidates,
                                                                         Long userId, Pageable pageable) {
         int totalElements = candidates.size();
@@ -216,10 +230,14 @@ public class PolicyRecommendationService {
                 ? Set.of()
                 : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, pagePolicyIds));
 
+        Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(pagePolicyIds);
+        Map<Long, List<Region>> regionsByPolicyId = groupRegionsByPolicyId(pagePolicyIds);
         List<PolicyRecommendationResponse> content = pageContent.stream()
                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
                         candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()),
-                        candidate.semanticScore()))
+                        candidate.semanticScore(),
+                        categoriesByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
+                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of())))
                 .toList();
 
         boolean first = pageable.getPageNumber() == 0;

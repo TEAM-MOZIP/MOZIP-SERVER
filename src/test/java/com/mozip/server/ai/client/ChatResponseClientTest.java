@@ -69,6 +69,7 @@ class ChatResponseClientTest {
                 .andExpect(content().string(Matchers.allOf(
                         Matchers.containsString("\"message\":\"국민취업지원제도가 뭐야?\""),
                         Matchers.containsString("\"groundingPolicies\""),
+                        Matchers.containsString("\"summary\":\"저소득 구직자 취업지원\""),
                         Matchers.containsString("\"policyDetail\""),
                         Matchers.containsString("\"unresolvedConditions\""),
                         Matchers.containsString("\"history\"")
@@ -188,7 +189,8 @@ class ChatResponseClientTest {
     private ChatResponseRequest sampleRequest() {
         return new ChatResponseRequest(
                 "국민취업지원제도가 뭐야?",
-                List.of(new GroundingPolicy(1L, "국민취업지원제도", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 12, 31))),
+                List.of(new GroundingPolicy(1L, "국민취업지원제도", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 12, 31),
+                        "저소득 구직자 취업지원")),
                 new PolicyDetailGrounding("국민취업지원제도", "요약", "만 15세 이상 69세 이하 구직자", "상시 신청 가능", "고용노동부"),
                 List.of(),
                 List.of()

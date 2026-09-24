@@ -2,6 +2,7 @@ package com.mozip.server.policy.controller;
 
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.AgeGroup;
+import com.mozip.server.policy.domain.AvailabilityFilter;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
@@ -10,6 +11,7 @@ import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.repository.PolicySortValidator;
 import com.mozip.server.policy.service.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
@@ -44,9 +46,12 @@ public class PolicyController {
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
             @RequestParam(required = false) AgeGroup ageGroup,
+            @Parameter(description = "신청 상태 필터(OPEN=접수 중, CLOSING_SOON=마감 임박, UPCOMING=예정). 오늘 날짜 기준으로 계산한다.")
+            @RequestParam(required = false) AvailabilityFilter availability,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Pageable validatedPageable = PolicySortValidator.validate(pageable);
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, ageGroup);
+        PolicySearchRequest condition =
+                new PolicySearchRequest(keyword, categoryId, regionId, status, ageGroup, availability);
         return policyService.searchPolicies(condition, validatedPageable);
     }
 
@@ -59,8 +64,11 @@ public class PolicyController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Long regionId,
             @RequestParam(required = false) PolicyStatus status,
+            @Parameter(description = "신청 상태 필터(OPEN=접수 중, CLOSING_SOON=마감 임박, UPCOMING=예정). 오늘 날짜 기준으로 계산한다.")
+            @RequestParam(required = false) AvailabilityFilter availability,
             @PageableDefault(size = 20) Pageable pageable) {
-        PolicySearchRequest condition = new PolicySearchRequest(keyword, categoryId, regionId, status, null);
+        PolicySearchRequest condition =
+                new PolicySearchRequest(keyword, categoryId, regionId, status, null, availability);
         return policyService.getRecommendedPolicies(condition, pageable);
     }
 
