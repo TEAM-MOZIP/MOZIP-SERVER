@@ -2,7 +2,9 @@ package com.mozip.server.policy.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class ApplicationGuideServiceTest {
@@ -40,10 +43,12 @@ class ApplicationGuideServiceTest {
             mock(PolicyApplicationInfoRepository.class);
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator = mock(PolicyAvailabilityEvaluator.class);
     private final PolicyApplicationGuideService policyApplicationGuideService = mock(PolicyApplicationGuideService.class);
+    private final PolicyApplicationGuideCacheService policyApplicationGuideCacheService =
+            mock(PolicyApplicationGuideCacheService.class);
 
     private final ApplicationGuideService applicationGuideService = new ApplicationGuideService(
             policyRepository, policyEligibilityRepository, policyApplicationInfoRepository,
-            policyAvailabilityEvaluator, policyApplicationGuideService);
+            policyAvailabilityEvaluator, policyApplicationGuideService, policyApplicationGuideCacheService);
 
     @Test
     void 존재하지_않는_정책이면_PolicyNotFoundException을_던진다() {
@@ -141,6 +146,20 @@ class ApplicationGuideServiceTest {
     }
 
     @Test
+    void 준비서류_원문이_하이픈뿐이면_준비서류를_비운다() {
+        Policy policy = policy(1L, null, null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, null, "-");
+        when(policyRepository.findWithOrganizationById(1L)).thenReturn(Optional.of(policy));
+        when(policyEligibilityRepository.findByPolicyId(1L)).thenReturn(Optional.empty());
+        when(policyApplicationInfoRepository.findByPolicyId(1L)).thenReturn(Optional.of(applicationInfo));
+        when(policyAvailabilityEvaluator.evaluate(policy)).thenReturn(availabilityResult());
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.requiredDocuments()).isEmpty();
+    }
+
+    @Test
     void eligibility가_없으면_requirements는_null이고_targetDescription은_그대로_노출된다() {
         Policy policy = policy(1L, "워크넷 온라인 신청", "만 15세 이상 청년");
         when(policyRepository.findWithOrganizationById(1L)).thenReturn(Optional.of(policy));
@@ -204,6 +223,93 @@ class ApplicationGuideServiceTest {
         assertThat(response.applicationUrl()).isEqualTo("https://www.work24.go.kr");
         assertThat(response.contactInfo()).isEqualTo("고용노동부 고객상담센터 1350");
         assertThat(response.notes()).isEqualTo("동절기 요금이 가장 많이 나오는 에너지원을 선택해 신청합니다.");
+    }
+
+    @Test
+    void 저장된_가이드의_원문이_그대로면_AI를_호출하지_않고_재사용한다() {
+        Policy policy = policy(1L, "워크넷 온라인 신청", null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, "고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        stubPolicy(policy, applicationInfo);
+        String sourceHash = PolicyApplicationGuideCacheService.sourceHash("고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        when(policyApplicationGuideCacheService.find(1L, sourceHash))
+                .thenReturn(Optional.of(new com.mozip.server.ai.dto.ApplicationGuideResponse(
+                        List.of(new ApplicationGuideStep(1, "저장된 단계", "설명")), List.of("신청서"))));
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.steps().get(0).title()).isEqualTo("저장된 단계");
+        verify(policyApplicationGuideService, never()).generate(any(), any());
+    }
+
+    @Test
+    void 저장된_가이드가_없으면_AI로_생성해_저장한다() {
+        Policy policy = policy(1L, "워크넷 온라인 신청", null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, "고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        stubPolicy(policy, applicationInfo);
+        com.mozip.server.ai.dto.ApplicationGuideResponse generated = new com.mozip.server.ai.dto.ApplicationGuideResponse(
+                List.of(new ApplicationGuideStep(1, "신청", "설명")), List.of("취업지원신청서"));
+        when(policyApplicationGuideService.generate("고용센터 방문 또는 온라인 신청", "취업지원신청서")).thenReturn(generated);
+
+        applicationGuideService.getApplicationGuide(1L);
+
+        String sourceHash = PolicyApplicationGuideCacheService.sourceHash("고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        verify(policyApplicationGuideCacheService).save(1L, generated, sourceHash);
+    }
+
+    @Test
+    void AI_생성에_실패한_원문_대체_가이드는_저장하지_않는다() {
+        Policy policy = policy(1L, "워크넷 온라인 신청", null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, "고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        stubPolicy(policy, applicationInfo);
+        when(policyApplicationGuideService.generate("고용센터 방문 또는 온라인 신청", "취업지원신청서"))
+                .thenReturn(new com.mozip.server.ai.dto.ApplicationGuideResponse(
+                        List.of(new ApplicationGuideStep(1, "신청 절차", "고용센터 방문 또는 온라인 신청")),
+                        List.of("취업지원신청서"), true));
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.steps()).hasSize(1);
+        verify(policyApplicationGuideCacheService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    void 가이드_저장에_실패해도_생성한_가이드를_그대로_응답한다() {
+        Policy policy = policy(1L, "워크넷 온라인 신청", null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, "고용센터 방문 또는 온라인 신청", "취업지원신청서");
+        stubPolicy(policy, applicationInfo);
+        when(policyApplicationGuideService.generate("고용센터 방문 또는 온라인 신청", "취업지원신청서"))
+                .thenReturn(new com.mozip.server.ai.dto.ApplicationGuideResponse(
+                        List.of(new ApplicationGuideStep(1, "신청", "설명")), List.of()));
+        doThrow(new DataIntegrityViolationException("중복")).when(policyApplicationGuideCacheService)
+                .save(any(), any(), any());
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.steps().get(0).title()).isEqualTo("신청");
+    }
+
+    @Test
+    void 신청_절차_원문이_너무_길면_AI를_호출하지_않고_원문을_그대로_보여준다() {
+        String longProcedure = "가".repeat(ApplicationGuideService.MAX_AI_SOURCE_LENGTH + 1);
+        Policy policy = policy(1L, "워크넷 온라인 신청", null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, longProcedure, "취업지원신청서");
+        stubPolicy(policy, applicationInfo);
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.steps()).hasSize(1);
+        assertThat(response.steps().get(0).title()).isEqualTo("신청 절차");
+        assertThat(response.steps().get(0).description()).isEqualTo(longProcedure);
+        assertThat(response.requiredDocuments()).containsExactly("취업지원신청서");
+        verify(policyApplicationGuideService, never()).generate(any(), any());
+        verify(policyApplicationGuideCacheService, never()).find(any(), any());
+    }
+
+    private void stubPolicy(Policy policy, PolicyApplicationInfo applicationInfo) {
+        when(policyRepository.findWithOrganizationById(policy.getId())).thenReturn(Optional.of(policy));
+        when(policyEligibilityRepository.findByPolicyId(policy.getId())).thenReturn(Optional.empty());
+        when(policyApplicationInfoRepository.findByPolicyId(policy.getId())).thenReturn(Optional.of(applicationInfo));
+        when(policyAvailabilityEvaluator.evaluate(policy)).thenReturn(availabilityResult());
     }
 
     private Policy policy(Long id, String applicationMethod, String targetDescription) {

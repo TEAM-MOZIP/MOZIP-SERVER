@@ -5,6 +5,7 @@ import com.mozip.server.policy.dto.CategoryResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.recommendation.domain.PolicyEligibilityResult;
 import com.mozip.server.region.dto.RegionResponse;
@@ -25,7 +26,9 @@ public record PolicyRecommendationResponse(
         Double semanticScore,
         List<CategoryResponse> categories,
         RegionScope regionScope,
-        List<RegionResponse> regions
+        List<RegionResponse> regions,
+        Integer minimumAge,
+        Integer maximumAge
 ) {
 
     /**
@@ -44,13 +47,13 @@ public record PolicyRecommendationResponse(
                                         PolicyEvaluationResponse.AvailabilityResponse availability,
                                         boolean bookmarked, Double semanticScore) {
         this(policyId, title, organizationName, applicationType, applicationStartDate, applicationEndDate,
-                eligibility, availability, bookmarked, semanticScore, List.of(), null, List.of());
+                eligibility, availability, bookmarked, semanticScore, List.of(), null, List.of(), null, null);
     }
 
     public static PolicyRecommendationResponse from(Policy policy, PolicyEligibilityResult eligibilityResult,
                                                       PolicyAvailabilityResult availabilityResult, boolean bookmarked,
                                                       Double semanticScore, List<Category> categories,
-                                                      List<Region> regions) {
+                                                      List<Region> regions, PolicyEligibility eligibility) {
         return new PolicyRecommendationResponse(
                 policy.getId(),
                 policy.getTitle(),
@@ -64,7 +67,9 @@ public record PolicyRecommendationResponse(
                 semanticScore,
                 categories.stream().map(CategoryResponse::from).toList(),
                 policy.getRegionScope(),
-                regions.stream().map(RegionResponse::from).toList()
+                regions.stream().map(RegionResponse::from).toList(),
+                eligibility != null ? eligibility.getMinimumAge() : null,
+                eligibility != null ? eligibility.getMaximumAge() : null
         );
     }
 }

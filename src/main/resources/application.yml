@@ -30,3 +30,8 @@ mozip:
     timeout-seconds: ${MOZIP_AI_TIMEOUT_SECONDS:3}
     explain-timeout-seconds: ${MOZIP_AI_EXPLAIN_TIMEOUT_SECONDS:4}
     chat-timeout-seconds: ${MOZIP_AI_CHAT_TIMEOUT_SECONDS:20}
+    # 운영 nginx가 챗봇 외 API를 15초에 끊으므로 그보다 짧게 둔다.
+    guide-timeout-seconds: ${MOZIP_AI_GUIDE_TIMEOUT_SECONDS:14}
+    summary-timeout-seconds: ${MOZIP_AI_SUMMARY_TIMEOUT_SECONDS:14}
+    reason-timeout-seconds: ${MOZIP_AI_REASON_TIMEOUT_SECONDS:10}
+    term-timeout-seconds: ${MOZIP_AI_TERM_TIMEOUT_SECONDS:10}
