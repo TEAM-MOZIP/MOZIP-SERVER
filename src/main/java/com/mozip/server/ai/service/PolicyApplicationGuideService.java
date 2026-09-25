@@ -49,6 +49,6 @@ public class PolicyApplicationGuideService {
         List<String> requiredDocuments = requiredDocumentsSource != null && !requiredDocumentsSource.isBlank()
                 ? List.of(requiredDocumentsSource)
                 : List.of();
-        return new ApplicationGuideResponse(steps, requiredDocuments);
+        return new ApplicationGuideResponse(steps, requiredDocuments, true);
     }
 }

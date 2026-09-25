@@ -28,6 +28,7 @@ class PolicyApplicationGuideServiceTest {
         ApplicationGuideResponse result = policyApplicationGuideService.generate("고용센터 방문", "취업지원신청서");
 
         assertThat(result).isEqualTo(aiResponse);
+        assertThat(result.fallback()).isFalse();
     }
 
     @Test
@@ -42,6 +43,7 @@ class PolicyApplicationGuideServiceTest {
         assertThat(result.steps().get(0).title()).isEqualTo("신청 절차");
         assertThat(result.steps().get(0).description()).isEqualTo("고용센터 방문 또는 온라인 신청");
         assertThat(result.requiredDocuments()).containsExactly("취업지원신청서");
+        assertThat(result.fallback()).isTrue();
     }
 
     @Test
