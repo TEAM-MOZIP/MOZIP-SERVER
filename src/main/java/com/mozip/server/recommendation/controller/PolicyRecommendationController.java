@@ -2,9 +2,10 @@ package com.mozip.server.recommendation.controller;
 
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.AvailabilityFilter;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.PolicyStatus;
-import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -46,11 +48,33 @@ public class PolicyRecommendationController {
         return policyRecommendationService.getRecommendations(Long.valueOf(userId), condition, onlyEligible, pageable);
     }
 
-    @Operation(summary = "개인화 정책 패키지 조회",
-            description = "로그인 및 프로필 등록 사용자를 대상으로 적격성 판정 결과를 카테고리별로 그룹핑한 패키지 목록을 조회한다. "
-                    + "INELIGIBLE 판정 정책은 제외되며, 카테고리당 최대 5개까지 포함한다.")
+    @Operation(summary = "개인화 정책 패키지 목록 조회",
+            description = "로그인 및 프로필 등록 사용자 기준으로 대상자별 패키지(job-seeker, solo-youth, senior, teen)의 "
+                    + "정책 수를 조회한다. INELIGIBLE 판정 정책은 제외한다.")
     @GetMapping("/api/recommendations/packages")
-    public List<PolicyPackageResponse> getPackages(@AuthenticationPrincipal String userId) {
+    public List<PolicyPackageSummaryResponse> getPackages(@AuthenticationPrincipal String userId) {
         return policyRecommendationService.getPackages(Long.valueOf(userId));
+    }
+
+    @Operation(summary = "개인화 정책 패키지 상세 조회",
+            description = "패키지의 섹션별 전체 정책 수와 미리보기 정책(섹션당 최대 6개)을 사용자 기준으로 조회한다. "
+                    + "INELIGIBLE과 마감된 정책은 제외하며, 개인화 추천 목록과 같은 기준(신청 가능 여부 → 적격성 → 적합도 점수)으로 정렬한다.")
+    @GetMapping("/api/recommendations/packages/{packageId}")
+    public PolicyPackageDetailResponse<PolicyRecommendationResponse> getPackage(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String packageId) {
+        return policyRecommendationService.getPackage(Long.valueOf(userId), packageId);
+    }
+
+    @Operation(summary = "개인화 정책 패키지 섹션 조회",
+            description = "패키지 섹션의 전체 정책을 사용자 기준으로 페이지 단위로 조회한다(더보기). 정렬은 상세 조회와 같다.")
+    @GetMapping("/api/recommendations/packages/{packageId}/sections/{sectionKey}")
+    public PageResponse<PolicyRecommendationResponse> getPackageSectionPolicies(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String packageId,
+            @PathVariable String sectionKey,
+            @PageableDefault(size = 12) Pageable pageable) {
+        return policyRecommendationService.getPackageSectionPolicies(Long.valueOf(userId), packageId, sectionKey,
+                pageable);
     }
 }

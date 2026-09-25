@@ -17,12 +17,14 @@ import com.mozip.server.auth.jwt.JwtTokenProvider;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSectionResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.recommendation.dto.PolicyEvaluationResponse;
-import com.mozip.server.recommendation.dto.PolicyPackageResponse;
 import com.mozip.server.recommendation.dto.PolicyRecommendationResponse;
 import com.mozip.server.recommendation.service.PolicyRecommendationService;
 import java.time.LocalDate;
@@ -214,7 +216,56 @@ class PolicyRecommendationControllerTest {
     @Test
     void 인증된_사용자는_패키지_목록을_조회한다() throws Exception {
         String accessToken = jwtTokenProvider.createAccessToken("1");
-        PolicyRecommendationResponse item = new PolicyRecommendationResponse(
+        when(policyRecommendationService.getPackages(1L))
+                .thenReturn(List.of(new PolicyPackageSummaryResponse("job-seeker", 7)));
+
+        mockMvc.perform(get("/api/recommendations/packages")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].packageId").value("job-seeker"))
+                .andExpect(jsonPath("$[0].policyCount").value(7));
+    }
+
+    @Test
+    void 인증된_사용자는_패키지_상세를_조회한다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PolicyPackageDetailResponse<PolicyRecommendationResponse> detail = new PolicyPackageDetailResponse<>(
+                "job-seeker", 1,
+                List.of(new PolicyPackageSectionResponse<>("employment", "취업", 1, List.of(sampleItem()))));
+        when(policyRecommendationService.getPackage(1L, "job-seeker")).thenReturn(detail);
+
+        mockMvc.perform(get("/api/recommendations/packages/job-seeker")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.packageId").value("job-seeker"))
+                .andExpect(jsonPath("$.sections[0].sectionKey").value("employment"))
+                .andExpect(jsonPath("$.sections[0].policies[0].policyId").value(1))
+                .andExpect(jsonPath("$.sections[0].policies[0].eligibility.status").value("ELIGIBLE"))
+                .andExpect(jsonPath("$.sections[0].policies[0].bookmarked").value(true));
+    }
+
+    @Test
+    void 인증된_사용자는_패키지_섹션을_페이지_단위로_조회한다() throws Exception {
+        String accessToken = jwtTokenProvider.createAccessToken("1");
+        PageResponse<PolicyRecommendationResponse> page =
+                new PageResponse<>(List.of(sampleItem()), 0, 12, 1, 1, true, true);
+        when(policyRecommendationService.getPackageSectionPolicies(eq(1L), eq("job-seeker"), eq("employment"),
+                any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(get("/api/recommendations/packages/job-seeker/sections/employment")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].policyId").value(1));
+    }
+
+    @Test
+    void 인증_없이_패키지_상세를_조회하면_401이다() throws Exception {
+        mockMvc.perform(get("/api/recommendations/packages/job-seeker"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private PolicyRecommendationResponse sampleItem() {
+        return new PolicyRecommendationResponse(
                 1L, "청년내일채움공제", "고용노동부",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
                 new PolicyEvaluationResponse.EligibilityResponse(
@@ -224,16 +275,5 @@ class PolicyRecommendationControllerTest {
                 true,
                 null
         );
-        PolicyPackageResponse packageResponse = new PolicyPackageResponse(1L, "청년정책", List.of(item));
-        when(policyRecommendationService.getPackages(1L)).thenReturn(List.of(packageResponse));
-
-        mockMvc.perform(get("/api/recommendations/packages")
-                        .header("Authorization", "Bearer " + accessToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].categoryId").value(1))
-                .andExpect(jsonPath("$[0].categoryName").value("청년정책"))
-                .andExpect(jsonPath("$[0].policies[0].policyId").value(1))
-                .andExpect(jsonPath("$[0].policies[0].eligibility.status").value("ELIGIBLE"))
-                .andExpect(jsonPath("$[0].policies[0].bookmarked").value(true));
     }
 }
