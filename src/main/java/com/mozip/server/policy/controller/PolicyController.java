@@ -4,9 +4,10 @@ import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.AgeGroup;
 import com.mozip.server.policy.domain.AvailabilityFilter;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
-import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.repository.PolicySortValidator;
 import com.mozip.server.policy.service.PolicyService;
@@ -80,11 +81,29 @@ public class PolicyController {
         return policyService.getPolicyDetail(id, userId);
     }
 
-    @Operation(summary = "공개 정책 패키지 조회",
-            description = "비로그인 사용자를 위한 카테고리별 정책 패키지 목록을 조회한다. "
-                    + "기존 공개 추천(신청 가능 여부 기준) 후보를 카테고리별로 그룹핑하며, 카테고리당 최대 5개까지 포함한다.")
+    @Operation(summary = "공개 정책 패키지 목록 조회",
+            description = "비로그인 사용자를 위한 대상자별 패키지(job-seeker, solo-youth, senior, teen)의 정책 수를 조회한다. "
+                    + "패키지 제목·문구 등 표시 정보는 클라이언트가 packageId로 관리한다.")
     @GetMapping("/packages")
-    public List<PublicPolicyPackageResponse> getPackages() {
+    public List<PolicyPackageSummaryResponse> getPackages() {
         return policyService.getPackages();
+    }
+
+    @Operation(summary = "공개 정책 패키지 상세 조회",
+            description = "패키지의 섹션별 전체 정책 수와 미리보기 정책(섹션당 최대 6개)을 조회한다. "
+                    + "마감된 정책은 제외하며, 접수 중 → 신청기간 확인 필요 → 예정 순으로 정렬한다.")
+    @GetMapping("/packages/{packageId}")
+    public PolicyPackageDetailResponse<PolicySummaryResponse> getPackage(@PathVariable String packageId) {
+        return policyService.getPackage(packageId);
+    }
+
+    @Operation(summary = "공개 정책 패키지 섹션 조회",
+            description = "패키지 섹션의 전체 정책을 페이지 단위로 조회한다(더보기). 정렬은 상세 조회와 같다.")
+    @GetMapping("/packages/{packageId}/sections/{sectionKey}")
+    public PageResponse<PolicySummaryResponse> getPackageSectionPolicies(
+            @PathVariable String packageId,
+            @PathVariable String sectionKey,
+            @PageableDefault(size = 12) Pageable pageable) {
+        return policyService.getPackageSectionPolicies(packageId, sectionKey, pageable);
     }
 }

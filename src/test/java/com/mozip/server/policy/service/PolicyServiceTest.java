@@ -11,9 +11,11 @@ import com.mozip.server.policy.domain.AvailabilityFilter;
 import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.dto.CategoryResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSectionResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
-import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Organization;
@@ -24,6 +26,7 @@ import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.exception.PolicyPackageNotFoundException;
 import com.mozip.server.policy.repository.CategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
@@ -445,70 +448,113 @@ class PolicyServiceTest {
     }
 
     @Test
-    void 공개_패키지는_카테고리별로_그룹핑되어_반환된다() {
-        Category category = createCategory("PKG_PUB_GROUP", KEYWORD + "-공개그룹핑카테고리");
-        Policy policy = createPolicy(KEYWORD + "-공개패키지", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
-        linkCategory(policy, category);
+    void 공개_패키지_목록은_네_개_대상자별_패키지의_정책_수를_반환한다() {
+        List<PolicyPackageSummaryResponse> packages = policyService.getPackages();
 
-        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
-
-        PublicPolicyPackageResponse matched = packages.stream()
-                .filter(response -> response.categoryId().equals(category.getId()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(matched.categoryName()).isEqualTo(category.getName());
-        assertThat(matched.policies()).extracting(PolicySummaryResponse::id).containsExactly(policy.getId());
+        assertThat(packages).extracting(PolicyPackageSummaryResponse::packageId)
+                .containsExactly("job-seeker", "solo-youth", "senior", "teen");
+        assertThat(packages).allMatch(response -> response.policyCount() >= 0);
     }
 
     @Test
-    void 공개_패키지_내부는_기존_공개_추천_정렬을_유지한다() {
-        Category category = createCategory("PKG_PUB_SORT", KEYWORD + "-공개정렬카테고리");
-        Policy unavailablePolicy = createPolicy(KEYWORD + "-공개정렬-마감", PolicyStatus.OPEN, ApplicationType.PERIOD,
-                LocalDate.now().minusYears(1), LocalDate.now().minusMonths(1));
-        Policy availablePolicy = createPolicy(KEYWORD + "-공개정렬-상시", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+    void 나이_제한이_패키지_나이와_겹치는_정책은_해당_섹션에_포함된다() {
+        Policy policy = createPolicy(KEYWORD + "-패키지나이", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).minimumAge(20).maximumAge(30).build());
+        linkCategory(policy, categoryByCode("EMPLOYMENT"));
+
+        assertThat(packageSectionIds("job-seeker", "employment")).contains(policy.getId());
+        assertThat(packageSectionIds("senior", "retirement")).doesNotContain(policy.getId());
+    }
+
+    @Test
+    void 나이_제한이_없는_정책은_대상_표현이_있을_때만_패키지에_포함된다() {
+        Policy targeted = createPolicy(KEYWORD + "-청년패키지", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
                 null, null);
-        linkCategory(unavailablePolicy, category);
-        linkCategory(availablePolicy, category);
+        Policy general = createPolicy(KEYWORD + "-일반패키지", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+                null, null);
+        linkCategory(targeted, categoryByCode("EMPLOYMENT"));
+        linkCategory(general, categoryByCode("EMPLOYMENT"));
 
-        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+        List<Long> employmentIds = packageSectionIds("job-seeker", "employment");
 
-        PublicPolicyPackageResponse matched = packages.stream()
-                .filter(response -> response.categoryId().equals(category.getId()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(matched.policies()).extracting(PolicySummaryResponse::id)
-                .containsExactly(availablePolicy.getId(), unavailablePolicy.getId());
+        assertThat(employmentIds).contains(targeted.getId());
+        assertThat(employmentIds).doesNotContain(general.getId());
     }
 
     @Test
-    void 공개_패키지는_그룹당_최대_5개까지만_포함한다() {
-        Category category = createCategory("PKG_PUB_MAX", KEYWORD + "-공개최대카테고리");
-        for (int i = 0; i < 6; i++) {
-            Policy policy = createPolicy(KEYWORD + "-공개최대-" + i, PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
-                    null, null);
-            linkCategory(policy, category);
+    void 교통_키워드가_있는_정책은_카테고리_섹션보다_교통_섹션에_먼저_배정된다() {
+        Policy policy = createPolicy(KEYWORD + "-어르신 버스 요금", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS,
+                null, null);
+        linkCategory(policy, categoryByCode("WELFARE"));
+
+        assertThat(packageSectionIds("senior", "transport")).contains(policy.getId());
+        assertThat(packageSectionIds("senior", "welfare")).doesNotContain(policy.getId());
+    }
+
+    @Test
+    void 마감된_정책은_패키지에서_제외되고_예정_정책은_포함된다() {
+        Policy ended = createPolicy(KEYWORD + "-청년패키지마감", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.now().minusYears(1), LocalDate.now().minusMonths(1));
+        Policy upcoming = createPolicy(KEYWORD + "-청년패키지예정", PolicyStatus.OPEN, ApplicationType.PERIOD,
+                LocalDate.now().plusMonths(1), LocalDate.now().plusMonths(2));
+        linkCategory(ended, categoryByCode("EMPLOYMENT"));
+        linkCategory(upcoming, categoryByCode("EMPLOYMENT"));
+
+        List<Long> employmentIds = packageSectionIds("job-seeker", "employment");
+
+        assertThat(employmentIds).contains(upcoming.getId());
+        assertThat(employmentIds).doesNotContain(ended.getId());
+    }
+
+    @Test
+    void 패키지_상세는_섹션별_전체_개수와_미리보기_최대_6개를_표시_순서대로_반환한다() {
+        for (int i = 0; i < 7; i++) {
+            Policy policy = createPolicy(KEYWORD + "-청년패키지미리보기-" + i, PolicyStatus.ALWAYS_OPEN,
+                    ApplicationType.ALWAYS, null, null);
+            linkCategory(policy, categoryByCode("STARTUP"));
         }
 
-        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+        PolicyPackageDetailResponse<PolicySummaryResponse> detail = policyService.getPackage("job-seeker");
 
-        PublicPolicyPackageResponse matched = packages.stream()
-                .filter(response -> response.categoryId().equals(category.getId()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(matched.policies()).hasSize(5);
+        assertThat(detail.packageId()).isEqualTo("job-seeker");
+        assertThat(detail.sections()).extracting(PolicyPackageSectionResponse::sectionKey)
+                .containsExactly("employment", "education", "startup");
+        PolicyPackageSectionResponse<PolicySummaryResponse> startup = detail.sections().get(2);
+        assertThat(startup.sectionName()).isEqualTo("창업");
+        assertThat(startup.totalCount()).isGreaterThanOrEqualTo(7);
+        assertThat(startup.policies()).hasSize(6);
+        assertThat(detail.sections()).allMatch(section ->
+                section.policies().size() == Math.min(6, section.totalCount()));
     }
 
     @Test
-    void 카테고리가_없는_정책은_공개_패키지에서_제외된다() {
-        Policy uncategorized = createPolicy(KEYWORD + "-공개미분류", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+    void 패키지_섹션_조회는_페이지_단위로_반환한다() {
+        PageResponse<PolicySummaryResponse> firstPage =
+                policyService.getPackageSectionPolicies("job-seeker", "employment", PageRequest.of(0, 2));
+        PolicyPackageDetailResponse<PolicySummaryResponse> detail = policyService.getPackage("job-seeker");
 
-        List<PublicPolicyPackageResponse> packages = policyService.getPackages();
+        assertThat(firstPage.content().size()).isLessThanOrEqualTo(2);
+        assertThat(firstPage.totalElements()).isEqualTo(detail.sections().get(0).totalCount());
+    }
 
-        List<Long> exposedPolicyIds = packages.stream()
-                .flatMap(response -> response.policies().stream())
-                .map(PolicySummaryResponse::id)
-                .toList();
-        assertThat(exposedPolicyIds).doesNotContain(uncategorized.getId());
+    @Test
+    void 존재하지_않는_패키지나_섹션을_조회하면_예외가_발생한다() {
+        assertThatThrownBy(() -> policyService.getPackage("unknown"))
+                .isInstanceOf(PolicyPackageNotFoundException.class);
+        assertThatThrownBy(() -> policyService.getPackageSectionPolicies("teen", "housing", PageRequest.of(0, 12)))
+                .isInstanceOf(PolicyPackageNotFoundException.class);
+    }
+
+    private List<Long> packageSectionIds(String packageId, String sectionKey) {
+        return policyService.getPackageSectionPolicies(packageId, sectionKey, PageRequest.of(0, 10_000))
+                .content().stream().map(PolicySummaryResponse::id).toList();
+    }
+
+    private Category categoryByCode(String code) {
+        return categoryRepository.findAll().stream()
+                .filter(category -> category.getCode().equals(code))
+                .findFirst()
+                .orElseGet(() -> categoryRepository.save(Category.builder().code(code).name(code).build()));
     }
 
     private PolicySummaryResponse findById(PageResponse<PolicySummaryResponse> response, Long policyId) {

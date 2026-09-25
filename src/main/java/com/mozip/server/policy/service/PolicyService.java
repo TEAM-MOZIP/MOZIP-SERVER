@@ -4,11 +4,15 @@ import com.mozip.server.bookmark.repository.BookmarkRepository;
 import com.mozip.server.global.dto.PageResponse;
 import com.mozip.server.policy.domain.PolicyAvailabilityCandidate;
 import com.mozip.server.policy.domain.PolicyAvailabilityResult;
-import com.mozip.server.policy.domain.PolicyPackageGrouper;
+import com.mozip.server.policy.domain.PolicyPackage;
+import com.mozip.server.policy.domain.PolicyPackageSection;
+import com.mozip.server.policy.domain.PolicyPackageSelector;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSectionResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
-import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.Category;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyCategory;
@@ -17,14 +21,17 @@ import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityComparator;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.exception.PolicyPackageNotFoundException;
 import com.mozip.server.policy.repository.PolicyCategoryRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRegionRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.policy.repository.PolicySpecifications;
 import com.mozip.server.region.entity.Region;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PolicyService {
 
     private static final PolicySearchRequest EMPTY_CONDITION = new PolicySearchRequest(null, null, null, null, null);
+    private static final int PACKAGE_PREVIEW_SIZE = 6;
 
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
@@ -94,23 +102,81 @@ public class PolicyService {
         return toPageResponse(candidates, pageable);
     }
 
-    public List<PublicPolicyPackageResponse> getPackages() {
-        List<PolicyAvailabilityCandidate> candidates = getSortedAvailabilityCandidates(EMPTY_CONDITION);
+    /** 대상자별 패키지 카드용: 패키지마다 정책 수를 센다. */
+    public List<PolicyPackageSummaryResponse> getPackages() {
+        PublicPackageContext context = loadPublicPackageContext();
+        return Arrays.stream(PolicyPackage.values())
+                .map(policyPackage -> new PolicyPackageSummaryResponse(policyPackage.getId(),
+                        PolicyPackageSelector.countPolicies(selectPublicPackage(policyPackage, context),
+                                PolicyAvailabilityCandidate::policy)))
+                .toList();
+    }
 
+    /** 패키지 상세: 섹션별 전체 개수와 미리보기({@value #PACKAGE_PREVIEW_SIZE}개)를 담는다. */
+    public PolicyPackageDetailResponse<PolicySummaryResponse> getPackage(String packageId) {
+        PolicyPackage policyPackage = PolicyPackage.fromId(packageId)
+                .orElseThrow(() -> new PolicyPackageNotFoundException(packageId));
+        Map<PolicyPackageSection, List<PolicyAvailabilityCandidate>> grouped =
+                selectPublicPackage(policyPackage, loadPublicPackageContext());
+
+        List<PolicyPackageSectionResponse<PolicySummaryResponse>> sections = grouped.entrySet().stream()
+                .map(entry -> new PolicyPackageSectionResponse<>(entry.getKey().key(), entry.getKey().name(),
+                        entry.getValue().size(),
+                        toSummaries(entry.getValue().stream().limit(PACKAGE_PREVIEW_SIZE).toList())))
+                .toList();
+        return new PolicyPackageDetailResponse<>(policyPackage.getId(),
+                PolicyPackageSelector.countPolicies(grouped, PolicyAvailabilityCandidate::policy), sections);
+    }
+
+    /** 패키지 섹션 전체를 페이지 단위로 조회한다(더보기). */
+    public PageResponse<PolicySummaryResponse> getPackageSectionPolicies(String packageId, String sectionKey,
+                                                                        Pageable pageable) {
+        PolicyPackage policyPackage = PolicyPackage.fromId(packageId)
+                .orElseThrow(() -> new PolicyPackageNotFoundException(packageId));
+        PolicyPackageSection section = policyPackage.findSection(sectionKey)
+                .orElseThrow(() -> new PolicyPackageNotFoundException(packageId, sectionKey));
+        List<PolicyAvailabilityCandidate> candidates =
+                selectPublicPackage(policyPackage, loadPublicPackageContext()).get(section);
+        return toPageResponse(candidates, pageable);
+    }
+
+    private PublicPackageContext loadPublicPackageContext() {
+        List<PolicyAvailabilityCandidate> candidates = getSortedAvailabilityCandidates(EMPTY_CONDITION);
+        List<Long> policyIds = candidates.stream().map(candidate -> candidate.policy().getId()).toList();
+        Map<Long, PolicyEligibility> eligibilityByPolicyId = policyIds.isEmpty()
+                ? Map.of()
+                : policyEligibilityRepository.findByPolicyIdIn(policyIds).stream()
+                        .collect(Collectors.toMap(eligibility -> eligibility.getPolicy().getId(), Function.identity()));
+        return new PublicPackageContext(candidates, eligibilityByPolicyId, groupCategoriesByPolicyId(policyIds));
+    }
+
+    private Map<PolicyPackageSection, List<PolicyAvailabilityCandidate>> selectPublicPackage(
+            PolicyPackage policyPackage, PublicPackageContext context) {
+        List<PolicyAvailabilityCandidate> sorted = context.candidates().stream()
+                .sorted(PolicyPackageSelector.publicOrder(policyPackage, PolicyAvailabilityCandidate::policy,
+                        PolicyAvailabilityCandidate::availabilityResult, context.eligibilityByPolicyId()))
+                .toList();
+        return PolicyPackageSelector.select(policyPackage, sorted, PolicyAvailabilityCandidate::policy,
+                PolicyAvailabilityCandidate::availabilityResult, context.eligibilityByPolicyId(),
+                context.categoriesByPolicyId());
+    }
+
+    private List<PolicySummaryResponse> toSummaries(List<PolicyAvailabilityCandidate> candidates) {
         List<Long> policyIds = candidates.stream().map(candidate -> candidate.policy().getId()).toList();
         Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(policyIds);
         Map<Long, List<Region>> regionsByPolicyId = groupRegionsByPolicyId(policyIds);
-
-        return PolicyPackageGrouper.group(candidates, PolicyAvailabilityCandidate::policy, categoriesByPolicyId)
-                .entrySet().stream()
-                .map(entry -> PublicPolicyPackageResponse.from(entry.getKey(),
-                        entry.getValue().stream()
-                                .map(candidate -> PolicySummaryResponse.from(candidate.policy(),
-                                        candidate.availabilityResult(),
-                                        categoriesByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
-                                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of())))
-                                .toList()))
+        return candidates.stream()
+                .map(candidate -> PolicySummaryResponse.from(candidate.policy(), candidate.availabilityResult(),
+                        categoriesByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
+                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of())))
                 .toList();
+    }
+
+    private record PublicPackageContext(
+            List<PolicyAvailabilityCandidate> candidates,
+            Map<Long, PolicyEligibility> eligibilityByPolicyId,
+            Map<Long, List<Category>> categoriesByPolicyId
+    ) {
     }
 
     private List<PolicyAvailabilityCandidate> getSortedAvailabilityCandidates(PolicySearchRequest condition) {
