@@ -13,9 +13,11 @@ import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Organization;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import com.mozip.server.user.entity.OAuthProvider;
 import com.mozip.server.user.entity.User;
@@ -48,7 +50,26 @@ class BookmarkServiceTest {
     private BookmarkRepository bookmarkRepository;
 
     @Autowired
+    private PolicyEligibilityRepository policyEligibilityRepository;
+
+    @Autowired
     private EntityManager entityManager;
+
+    @Test
+    void 내_북마크_목록에_신청유형과_대상_나이_범위가_포함된다() {
+        User user = createUser("bookmark-chips@example.com", "bookmark-chips-1");
+        Policy policy = createPolicy("북마크테스트-칩정보");
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(policy).minimumAge(19).maximumAge(34).build());
+        bookmarkService.addBookmark(user.getId(), policy.getId());
+
+        PageResponse<BookmarkResponse> response = bookmarkService.getMyBookmarks(user.getId(), PageRequest.of(0, 20));
+
+        BookmarkResponse bookmark = response.content().get(0);
+        assertThat(bookmark.applicationType()).isEqualTo(ApplicationType.ALWAYS);
+        assertThat(bookmark.regionScope()).isEqualTo(RegionScope.NATIONAL);
+        assertThat(bookmark.minimumAge()).isEqualTo(19);
+        assertThat(bookmark.maximumAge()).isEqualTo(34);
+    }
 
     @Test
     void 북마크_등록에_성공한다() {
