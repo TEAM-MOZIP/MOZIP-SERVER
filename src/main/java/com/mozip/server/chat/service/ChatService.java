@@ -1,5 +1,6 @@
 package com.mozip.server.chat.service;
 
+import com.mozip.server.ai.dto.ChatResponseResponse;
 import com.mozip.server.ai.dto.ConditionExtractionResponse;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
@@ -20,18 +21,27 @@ import com.mozip.server.chat.evaluator.ChatPolicyAudienceFilter;
 import com.mozip.server.chat.evaluator.ChatPolicyMatchComparator;
 import com.mozip.server.chat.evaluator.ChatPolicyRelevanceScorer;
 import com.mozip.server.policy.domain.PolicyAvailability;
+import com.mozip.server.policy.dto.PolicyDetailResponse;
 import com.mozip.server.policy.entity.Policy;
+import com.mozip.server.policy.entity.PolicyApplicationInfo;
 import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.policy.repository.PolicyApplicationInfoRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
+import com.mozip.server.policy.service.ApplicationGuideService;
 import com.mozip.server.policy.service.PolicyService;
+import com.mozip.server.recommendation.domain.ConditionResult;
 import com.mozip.server.recommendation.domain.EligibilityStatus;
 import com.mozip.server.region.entity.Region;
 import com.mozip.server.region.repository.RegionRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +60,9 @@ public class ChatService {
     private static final int RELATED_WITH_DETAIL = 2;
     /** 조건 이어받기에 사용할 최근 사용자 메시지 수. history 전체를 넣으면 오래된 조건이 섞이고 추출 비용이 커진다. */
     private static final int HISTORY_MESSAGES_FOR_CONDITIONS = 3;
+    /** 자격을 묻는 질문 표현. 이때만 이전 메시지 조건까지 모아 자격을 판정한다. */
+    private static final Pattern ELIGIBILITY_QUESTION =
+            Pattern.compile("받을\\s?수|자격|해당(돼|되|하|이)|신청할\\s?수|대상(이|인|에|일)");
     private static final ChatCondition EMPTY_CONDITION = new ChatCondition(null, null, null, null, null, null);
 
     private final ConditionExtractionService conditionExtractionService;
@@ -60,6 +73,8 @@ public class ChatService {
     private final RegionRepository regionRepository;
     private final PolicyAvailabilityEvaluator policyAvailabilityEvaluator;
     private final PolicyApplicationInfoRepository policyApplicationInfoRepository;
+    private final ApplicationGuideService applicationGuideService;
+    private final ChatAnswerAssembler chatAnswerAssembler;
 
     public ChatService(ConditionExtractionService conditionExtractionService,
                         ChatPolicySearchService chatPolicySearchService,
@@ -68,7 +83,8 @@ public class ChatService {
                         PolicyRepository policyRepository,
                         RegionRepository regionRepository,
                         PolicyAvailabilityEvaluator policyAvailabilityEvaluator,
-                        PolicyApplicationInfoRepository policyApplicationInfoRepository) {
+                        PolicyApplicationInfoRepository policyApplicationInfoRepository,
+                        ApplicationGuideService applicationGuideService) {
         this.conditionExtractionService = conditionExtractionService;
         this.chatPolicySearchService = chatPolicySearchService;
         this.chatResponseGenerationService = chatResponseGenerationService;
@@ -77,6 +93,8 @@ public class ChatService {
         this.regionRepository = regionRepository;
         this.policyAvailabilityEvaluator = policyAvailabilityEvaluator;
         this.policyApplicationInfoRepository = policyApplicationInfoRepository;
+        this.applicationGuideService = applicationGuideService;
+        this.chatAnswerAssembler = new ChatAnswerAssembler(policyService);
     }
 
     public ChatResponse handle(ChatRequest request) {
@@ -100,13 +118,26 @@ public class ChatService {
         List<Policy> policies = policyRepository.findAll();
         List<Policy> titleMatches = matchPoliciesByTitle(message, policies);
         if (!titleMatches.isEmpty()) {
-            return handlePolicyDetail(message, titleMatches, keywords, unresolvedConditionsOf(current), history,
-                    userText);
+            return handlePolicyDetail(message, current, titleMatches, keywords, unresolvedConditionsOf(current),
+                    history, userText);
+        }
+        // 서로 다른 정책 이름을 두 개 이상 말했으면("A랑 B 뭐가 달라?") 그 정책들을 함께 근거로 넘긴다(비교).
+        List<Policy> namedPolicies = distinctTitleMatches(message, policies);
+        if (namedPolicies.size() > 1) {
+            return handlePolicySet(message, current, namedPolicies, unresolvedConditionsOf(current), history);
         }
 
-        // 조건도 주제 키워드도 없는 메시지("신청 기간은?", "그거 서류는 뭐 필요해?")는 이전 턴 정책에 대한
-        // 후속 질문이거나 일반 질문이다 — 문맥 해석은 history를 받은 AI에 맡긴다.
+        // 조건도 주제 키워드도 없는 메시지("신청 기간은?", "두 정책 비교해줘")는 이전 턴 정책에 대한 후속 질문이거나
+        // 일반 질문이다. 이전 턴에 카드로 보여준 정책이 있으면 그 정책을 근거로 넘기고, 문맥 해석은 AI에 맡긴다.
         if (keywords.isEmpty()) {
+            List<Policy> previousPolicies = previousTurnPolicies(history, policies);
+            if (previousPolicies.size() == 1) {
+                return handlePolicyDetail(message, current, previousPolicies, keywords,
+                        unresolvedConditionsOf(current), history, userText);
+            }
+            if (previousPolicies.size() > 1) {
+                return handlePolicySet(message, current, previousPolicies, unresolvedConditionsOf(current), history);
+            }
             return handleGeneralOrKeywordSearch(message, current, policies, List.of(), history, userText);
         }
 
@@ -220,7 +251,7 @@ public class ChatService {
         scoringKeywords.addAll(contextKeywords);
         List<ChatPolicyMatchResult> top =
                 selectTop(chatPolicySearchService.search(condition), scoringKeywords, relevanceTiers, userText);
-        return respondWithPolicies(message, top, unresolvedConditions, history);
+        return respondWithPolicies(message, top, unresolvedConditions, history, true);
     }
 
     /**
@@ -259,18 +290,27 @@ public class ChatService {
         return List.of();
     }
 
+    /**
+     * @param withEligibility 사용자가 조건을 말해 자격 판정이 의미 있을 때만 true — 조건 없이 찾은 정책은 모두 "확인 필요"로
+     *                        판정되므로 카드에 자격 칩을 붙이지 않는다.
+     */
     private ChatResponse respondWithPolicies(String message, List<ChatPolicyMatchResult> top,
-                                             List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history) {
+                                             List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history,
+                                             boolean withEligibility) {
         List<GroundingPolicy> groundingPolicies = ChatResponseRequestMapper.toGroundingPolicies(top);
 
-        String reply = chatResponseGenerationService.generate(message, groundingPolicies, null, unresolvedConditions,
-                ChatResponseRequestMapper.toAiChatTurns(history));
+        ChatResponseResponse answer = chatResponseGenerationService.generate(message, groundingPolicies, null,
+                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history));
 
-        return new ChatResponse(
-                reply,
+        return chatAnswerAssembler.assemble(answer, withEligibility ? eligibilityOf(top) : Map.of(), null,
                 top.stream().map(ChatMatchedPolicyResponse::from).toList(),
-                unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList()
-        );
+                unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList());
+    }
+
+    private Map<Long, EligibilityStatus> eligibilityOf(List<ChatPolicyMatchResult> matches) {
+        Map<Long, EligibilityStatus> result = new HashMap<>();
+        matches.forEach(match -> result.put(match.policy().getId(), match.eligibilityResult().overallStatus()));
+        return result;
     }
 
     /**
@@ -286,14 +326,14 @@ public class ChatService {
             List<ChatPolicyMatchResult> top = selectTop(chatPolicySearchService.search(EMPTY_CONDITION), keywords,
                     List.of(match -> ChatPolicyRelevanceScorer.matchesTitle(match.policy(), keywords)), userText);
             if (!top.isEmpty()) {
-                return respondWithPolicies(message, top, unresolvedConditions, history);
+                return respondWithPolicies(message, top, unresolvedConditions, history, false);
             }
         }
 
-        String reply = chatResponseGenerationService.generate(message, List.of(), null, unresolvedConditions,
-                ChatResponseRequestMapper.toAiChatTurns(history));
+        ChatResponseResponse answer = chatResponseGenerationService.generate(message, List.of(), null,
+                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history));
 
-        return new ChatResponse(reply, List.of(),
+        return chatAnswerAssembler.assemble(answer, Map.of(), null, List.of(),
                 unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList());
     }
 
@@ -302,20 +342,36 @@ public class ChatService {
      * 카드는 물어본 정책 + 비슷한 정책(같은 제목의 다른 자치구 정책, 키워드 관련 정책) 최대 2개를 내려준다.
      * 비슷한 정책은 groundingPolicies로도 넘겨 AI가 "비슷한 정책도 살펴보세요"로 안내할 수 있게 한다.
      */
-    private ChatResponse handlePolicyDetail(String message, List<Policy> titleMatches, List<String> keywords,
+    private ChatResponse handlePolicyDetail(String message, ConditionExtractionResponse current,
+                                            List<Policy> titleMatches, List<String> keywords,
                                             List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history,
                                             String userText) {
         Policy primary = titleMatches.get(0);
-        PolicyDetailGrounding policyDetail = ChatResponseRequestMapper.toPolicyDetailGrounding(
-                policyService.getPolicyDetail(primary.getId(), null),
-                policyApplicationInfoRepository.findByPolicyId(primary.getId()).orElse(null));
+        PolicyDetailResponse detailResponse = policyService.getPolicyDetail(primary.getId(), null);
+        PolicyApplicationInfo applicationInfo =
+                policyApplicationInfoRepository.findByPolicyId(primary.getId()).orElse(null);
 
+        // "나 이거 받을 수 있어?"에 답하려면 사용자가 (이전 턴까지 포함해) 말한 조건으로 판정해야 한다.
+        ChatCondition condition = conditionFor(message, current, history);
         List<Long> sameTitleIds = titleMatches.stream().map(Policy::getId).toList();
-        List<ChatPolicyMatchResult> allMatches = chatPolicySearchService.search(EMPTY_CONDITION);
+        List<ChatPolicyMatchResult> allMatches =
+                chatPolicySearchService.search(condition != null ? condition : EMPTY_CONDITION);
         ChatPolicyMatchResult primaryCard = allMatches.stream()
                 .filter(match -> match.policy().getId().equals(primary.getId()))
                 .findFirst()
                 .orElse(null);
+        boolean judged = condition != null && primaryCard != null;
+        List<ConditionResult> conditionResults =
+                judged ? primaryCard.eligibilityResult().conditionResults() : List.of();
+        // 신청 가이드가 이미 만들어져 있으면 신청 방법 답변의 단계·서류는 그걸로 채운다 — AI가 긴 원문으로 단계를
+        // 다시 쓰면 답변이 길어져 timeout이 나기 쉽다. 캐시가 없으면 새로 만들지 않는다(AI 호출이 더 들기 때문).
+        com.mozip.server.ai.dto.ApplicationGuideResponse guide =
+                applicationGuideService.findCachedGuide(primary.getId()).orElse(null);
+        PolicyDetailGrounding policyDetail = ChatResponseRequestMapper
+                .toPolicyDetailGrounding(detailResponse, applicationInfo)
+                .withPolicy(primary.getId(), judged ? primaryCard.eligibilityResult().overallStatus() : null,
+                        conditionResults)
+                .withApplicationGuideAttached(guide != null);
         List<ChatPolicyMatchResult> related = selectTop(
                 allMatches.stream().filter(match -> !match.policy().getId().equals(primary.getId())).toList(),
                 keywords,
@@ -325,17 +381,70 @@ public class ChatService {
                 .limit(RELATED_WITH_DETAIL)
                 .toList();
 
-        String reply = chatResponseGenerationService.generate(message,
+        ChatResponseResponse answer = chatResponseGenerationService.generate(message,
                 ChatResponseRequestMapper.toGroundingPolicies(related), policyDetail, unresolvedConditions,
                 ChatResponseRequestMapper.toAiChatTurns(history));
 
-        List<ChatMatchedPolicyResponse> cards = new ArrayList<>();
+        List<ChatPolicyMatchResult> shown = new ArrayList<>();
         if (primaryCard != null) {
-            cards.add(ChatMatchedPolicyResponse.from(primaryCard));
+            shown.add(primaryCard);
         }
-        related.stream().map(ChatMatchedPolicyResponse::from).forEach(cards::add);
-        return new ChatResponse(reply, cards,
+        shown.addAll(related);
+        ChatAnswerAssembler.DetailContext detail = new ChatAnswerAssembler.DetailContext(conditionResults,
+                applicationInfo != null ? applicationInfo.getApplicationUrl() : null, detailResponse.sourceUrl(), guide);
+        return chatAnswerAssembler.assemble(answer, condition != null ? eligibilityOf(shown) : Map.of(), detail,
+                shown.stream().map(ChatMatchedPolicyResponse::from).toList(),
                 unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList());
+    }
+
+    /**
+     * 여러 정책을 한꺼번에 근거로 넘긴다 — 정책 이름을 두 개 이상 말했거나("A랑 B 뭐가 달라?"), 이전 턴에 보여준
+     * 정책들에 대한 후속 질문("두 정책 비교해줘")일 때. 비교할지·목록으로 안내할지는 AI가 질문을 보고 정한다.
+     */
+    private ChatResponse handlePolicySet(String message, ConditionExtractionResponse current, List<Policy> policies,
+                                         List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history) {
+        ChatCondition condition = conditionFor(message, current, history);
+        List<Long> ids = policies.stream().map(Policy::getId).toList();
+        Map<Long, ChatPolicyMatchResult> matchById = new HashMap<>();
+        chatPolicySearchService.search(condition != null ? condition : EMPTY_CONDITION).stream()
+                .filter(match -> ids.contains(match.policy().getId()))
+                .forEach(match -> matchById.put(match.policy().getId(), match));
+        List<ChatPolicyMatchResult> chosen = ids.stream().map(matchById::get).filter(Objects::nonNull).toList();
+        return respondWithPolicies(message, chosen, unresolvedConditions, history, condition != null);
+    }
+
+    /**
+     * 자격을 묻는 질문("나 이거 받을 수 있어?")이면 현재·최근 사용자 메시지에서 말한 조건을 돌려준다. 판정에 쓸 조건
+     * (나이·지역 등)이 없거나 자격을 묻는 질문이 아니면 null — 이전 메시지 조건 추출은 AI 호출이 한 번 더 들기 때문에
+     * 필요할 때만 한다.
+     */
+    private ChatCondition conditionFor(String message, ConditionExtractionResponse current, List<ChatTurn> history) {
+        if (!ELIGIBILITY_QUESTION.matcher(message).find()) {
+            return null;
+        }
+        ConditionExtractionResponse merged = mergeWithHistoryConditions(current, history);
+        return hasActionableAxis(merged) ? toChatCondition(merged) : null;
+    }
+
+    /** 가장 최근 턴에 카드로 보여준 정책(최대 {@value #TOP_N}개). */
+    private List<Policy> previousTurnPolicies(List<ChatTurn> history, List<Policy> policies) {
+        if (history.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = history.get(history.size() - 1).policyIds();
+        Map<Long, Policy> policyById = new HashMap<>();
+        policies.forEach(policy -> policyById.put(policy.getId(), policy));
+        return ids.stream().map(policyById::get).filter(Objects::nonNull).limit(TOP_N).toList();
+    }
+
+    /** 메시지에 제목이 통째로 들어 있는 정책을 제목마다 하나씩(id가 가장 작은 것) 고른다. */
+    private List<Policy> distinctTitleMatches(String message, List<Policy> policies) {
+        Map<String, Policy> byTitle = new LinkedHashMap<>();
+        policies.stream()
+                .filter(policy -> policy.getTitle() != null && message.contains(policy.getTitle()))
+                .sorted(Comparator.comparing(Policy::getId))
+                .forEach(policy -> byTitle.putIfAbsent(policy.getTitle(), policy));
+        return byTitle.values().stream().limit(TOP_N).toList();
     }
 
     /**
