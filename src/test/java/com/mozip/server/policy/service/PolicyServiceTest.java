@@ -282,6 +282,57 @@ class PolicyServiceTest {
     }
 
     @Test
+    void 공개_추천_목록도_ageGroup_필터를_적용한다() {
+        Policy matched = createPolicy(KEYWORD + "-추천연령", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(matched).maximumAge(18).build());
+        Policy notMatched = createPolicy(KEYWORD + "-추천연령", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(notMatched).minimumAge(19).maximumAge(39).build());
+
+        PageResponse<PolicySummaryResponse> response = policyService.getRecommendedPolicies(
+                new PolicySearchRequest(KEYWORD + "-추천연령", null, null, null, AgeGroup.UNDER_19), PageRequest.of(0, 20));
+
+        assertThat(response.content()).extracting(PolicySummaryResponse::id).containsExactly(matched.getId());
+    }
+
+    @Test
+    void 목록_응답에_정책_나이_범위가_포함된다() {
+        Policy ranged = createPolicy(KEYWORD + "-나이범위", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        policyEligibilityRepository.save(PolicyEligibility.builder().policy(ranged).minimumAge(19).maximumAge(39).build());
+        Policy unlimited = createPolicy(KEYWORD + "-나이범위", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        PolicySearchRequest condition = new PolicySearchRequest(KEYWORD + "-나이범위", null, null, null, null);
+
+        PageResponse<PolicySummaryResponse> searched = policyService.searchPolicies(condition, PageRequest.of(0, 20));
+        PageResponse<PolicySummaryResponse> recommended = policyService.getRecommendedPolicies(condition,
+                PageRequest.of(0, 20));
+
+        assertThat(findById(searched, ranged.getId()).minimumAge()).isEqualTo(19);
+        assertThat(findById(searched, ranged.getId()).maximumAge()).isEqualTo(39);
+        assertThat(findById(recommended, ranged.getId()).maximumAge()).isEqualTo(39);
+        assertThat(findById(searched, unlimited.getId()).minimumAge()).isNull();
+        assertThat(findById(searched, unlimited.getId()).maximumAge()).isNull();
+    }
+
+    @Test
+    void 로그인_사용자가_공개_목록을_조회하면_정책별_북마크_여부가_채워진다() {
+        User user = createUser("policy-list-bookmark@example.com", "policy-list-bookmark-1");
+        Policy bookmarked = createPolicy(KEYWORD + "-목록북마크", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        Policy notBookmarked = createPolicy(KEYWORD + "-목록북마크", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
+        bookmarkRepository.save(Bookmark.builder().user(user).policy(bookmarked).build());
+        PolicySearchRequest condition = new PolicySearchRequest(KEYWORD + "-목록북마크", null, null, null, null);
+
+        PageResponse<PolicySummaryResponse> searched = policyService.searchPolicies(condition, PageRequest.of(0, 20),
+                user.getId());
+        PageResponse<PolicySummaryResponse> recommended = policyService.getRecommendedPolicies(condition,
+                PageRequest.of(0, 20), user.getId());
+        PageResponse<PolicySummaryResponse> anonymous = policyService.searchPolicies(condition, PageRequest.of(0, 20));
+
+        assertThat(findById(searched, bookmarked.getId()).bookmarked()).isTrue();
+        assertThat(findById(searched, notBookmarked.getId()).bookmarked()).isFalse();
+        assertThat(findById(recommended, bookmarked.getId()).bookmarked()).isTrue();
+        assertThat(findById(anonymous, bookmarked.getId()).bookmarked()).isNull();
+    }
+
+    @Test
     void 연령_제한_근거가_없는_정책은_ageGroup_필터에서도_포함된다() {
         Policy noEligibilityRecord = createPolicy(KEYWORD + "-연령없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);
         Policy bothNull = createPolicy(KEYWORD + "-연령없음", PolicyStatus.ALWAYS_OPEN, ApplicationType.ALWAYS, null, null);

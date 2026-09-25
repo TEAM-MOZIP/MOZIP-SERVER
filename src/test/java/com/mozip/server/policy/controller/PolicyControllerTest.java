@@ -68,7 +68,7 @@ class PolicyControllerTest {
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
-        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/policies"))
@@ -89,7 +89,7 @@ class PolicyControllerTest {
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
-        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/policies/recommended"))
@@ -184,14 +184,28 @@ class PolicyControllerTest {
     @Test
     void ageGroup_파라미터가_Service에_전달된다() throws Exception {
         PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
-        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class))).thenReturn(page);
+        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull())).thenReturn(page);
 
         mockMvc.perform(get("/api/policies").param("ageGroup", "AGE_25_29"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
-        verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class));
+        verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class), isNull());
         assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.AGE_25_29);
+    }
+
+    @Test
+    void 공개_추천_목록에도_ageGroup_파라미터가_Service에_전달된다() throws Exception {
+        PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
+        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/policies/recommended").param("ageGroup", "UNDER_19"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
+        verify(policyService).getRecommendedPolicies(conditionCaptor.capture(), any(Pageable.class), isNull());
+        assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.UNDER_19);
     }
 
     @Test
