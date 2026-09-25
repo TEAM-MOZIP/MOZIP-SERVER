@@ -219,6 +219,19 @@ class PolicySummaryServiceTest {
         assertThat(hashA).isNotEqualTo(hashB);
     }
 
+    @Test
+    void 원문이_너무_길면_앞부분만_잘라_AI에_보낸다() {
+        String longDescription = "가".repeat(PolicySummaryService.MAX_SOURCE_LENGTH + 100);
+        Policy policy = policy(1L, "헤드라인", longDescription, "대상", "혜택");
+        when(policyRepository.findById(1L)).thenReturn(Optional.of(policy));
+        when(policySummaryRepository.findByPolicyId(1L)).thenReturn(Optional.empty());
+
+        policySummaryService.getSummary(1L);
+
+        verify(policySummaryGenerationService).generate(
+                "정책명", "가".repeat(PolicySummaryService.MAX_SOURCE_LENGTH), "대상", "혜택");
+    }
+
     private Policy policy(Long id, String summary, String description, String targetDescription, String benefitDescription) {
         Organization organization = Organization.builder().name("테스트기관").build();
         Policy policy = Policy.builder()
