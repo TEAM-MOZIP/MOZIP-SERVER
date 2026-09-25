@@ -13,6 +13,7 @@ import com.mozip.server.policy.repository.PolicyApplicationInfoRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -129,6 +130,27 @@ public class ApplicationGuideService {
             return List.of();
         }
         return List.of(new ApplicationGuideStepResponse(1, APPLICATION_METHOD_STEP_TITLE, applicationMethod));
+    }
+
+    /**
+     * 이미 만들어 둔(캐시된) AI 신청 가이드만 돌려준다 — 없으면 AI로 새로 만들지 않고 empty.
+     * 챗봇이 "신청 방법 알려줘"에 답할 때 단계·준비 서류를 AI에게 다시 쓰게 하지 않으려고 쓴다.
+     */
+    public Optional<com.mozip.server.ai.dto.ApplicationGuideResponse> findCachedGuide(Long policyId) {
+        Policy policy = policyRepository.findById(policyId).orElse(null);
+        PolicyApplicationInfo applicationInfo = policyApplicationInfoRepository.findByPolicyId(policyId).orElse(null);
+        if (policy == null || applicationInfo == null) {
+            return Optional.empty();
+        }
+        String instructions = resolveApplicationInstructionsSource(policy, applicationInfo);
+        if (instructions == null || instructions.isBlank()) {
+            return Optional.empty();
+        }
+        String sourceHash = PolicyApplicationGuideCacheService.sourceHash(
+                instructions, applicationInfo.getRequiredDocumentsText());
+        return policyApplicationGuideCacheService.find(policyId, sourceHash)
+                .map(guide -> new com.mozip.server.ai.dto.ApplicationGuideResponse(guide.steps(),
+                        withoutPlaceholders(guide.requiredDocuments() != null ? guide.requiredDocuments() : List.of())));
     }
 
     private String resolveApplicationInstructionsSource(Policy policy, PolicyApplicationInfo applicationInfo) {

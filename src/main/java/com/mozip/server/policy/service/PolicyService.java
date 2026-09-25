@@ -97,6 +97,27 @@ public class PolicyService {
         return withBookmarks(PageResponse.from(summaries), userId);
     }
 
+    /**
+     * 정책 id들의 목록 카드 정보(접수 상태·카테고리·지역·대상 나이)를 한 번에 조회한다. 챗봇 정책 카드처럼
+     * 정해진 정책들만 카드로 보여줄 때 쓴다. 없는 id는 결과에서 빠진다.
+     */
+    public Map<Long, PolicySummaryResponse> getSummariesByIds(List<Long> policyIds) {
+        if (policyIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Policy> policies = policyRepository.findAllById(policyIds);
+        List<Long> foundIds = policies.stream().map(Policy::getId).toList();
+        Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(foundIds);
+        Map<Long, List<Region>> regionsByPolicyId = groupRegionsByPolicyId(foundIds);
+        Map<Long, PolicyEligibility> eligibilityByPolicyId = findEligibilitiesByPolicyId(foundIds);
+        return policies.stream()
+                .collect(Collectors.toMap(Policy::getId, policy -> PolicySummaryResponse.from(policy,
+                        policyAvailabilityEvaluator.evaluate(policy),
+                        categoriesByPolicyId.getOrDefault(policy.getId(), List.of()),
+                        regionsByPolicyId.getOrDefault(policy.getId(), List.of()),
+                        eligibilityByPolicyId.get(policy.getId()))));
+    }
+
     public PolicyDetailResponse getPolicyDetail(Long policyId, Long userId) {
         Policy policy = policyRepository.findWithOrganizationById(policyId)
                 .orElseThrow(() -> new PolicyNotFoundException(policyId));
