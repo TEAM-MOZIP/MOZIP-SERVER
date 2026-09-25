@@ -195,12 +195,18 @@ public class PolicyRecommendationService {
                 : Set.copyOf(bookmarkRepository.findBookmarkedPolicyIds(userId, policyIds));
         Map<Long, List<Category>> categoriesByPolicyId = groupCategoriesByPolicyId(policyIds);
         Map<Long, List<Region>> regionsByPolicyId = groupRegionsByPolicyId(policyIds);
+        // 목록 카드의 연령 칩 표시용 나이 범위
+        Map<Long, PolicyEligibility> eligibilityByPolicyId = policyIds.isEmpty()
+                ? Map.of()
+                : policyEligibilityRepository.findByPolicyIdIn(policyIds).stream()
+                        .collect(Collectors.toMap(eligibility -> eligibility.getPolicy().getId(), Function.identity()));
         return candidates.stream()
                 .map(candidate -> PolicyRecommendationResponse.from(candidate.policy(), candidate.eligibilityResult(),
                         candidate.availabilityResult(), bookmarkedPolicyIds.contains(candidate.policy().getId()),
                         candidate.semanticScore(),
                         categoriesByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
-                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of())))
+                        regionsByPolicyId.getOrDefault(candidate.policy().getId(), List.of()),
+                        eligibilityByPolicyId.get(candidate.policy().getId())))
                 .toList();
     }
 
