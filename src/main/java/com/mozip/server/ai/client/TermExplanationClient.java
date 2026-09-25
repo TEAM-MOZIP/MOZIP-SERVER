@@ -36,7 +36,7 @@ public class TermExplanationClient {
     private static RestClient buildRestClient(RestClient.Builder restClientBuilder, MozipAiProperties properties) {
         ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()))
-                .withReadTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()));
+                .withReadTimeout(Duration.ofSeconds(properties.resolvedTermTimeoutSeconds()));
         ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.detect().build(settings);
 
         return restClientBuilder

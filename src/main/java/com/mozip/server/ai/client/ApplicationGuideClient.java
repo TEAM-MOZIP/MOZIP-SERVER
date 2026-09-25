@@ -36,7 +36,7 @@ public class ApplicationGuideClient {
     private static RestClient buildRestClient(RestClient.Builder restClientBuilder, MozipAiProperties properties) {
         ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()))
-                .withReadTimeout(Duration.ofSeconds(properties.explainTimeoutSeconds()));
+                .withReadTimeout(Duration.ofSeconds(properties.resolvedGuideTimeoutSeconds()));
         ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.detect().build(settings);
 
         return restClientBuilder
