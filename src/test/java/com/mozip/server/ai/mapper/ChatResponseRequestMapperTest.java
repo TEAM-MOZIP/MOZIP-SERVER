@@ -60,6 +60,23 @@ class ChatResponseRequestMapperTest {
     }
 
     @Test
+    void GroundingPolicy에_지원_대상과_지원_내용을_앞부분만_담는다() {
+        Policy policy = policy(1L, "청년월세지원", null);
+        ReflectionTestUtils.setField(policy, "targetDescription", "무주택 청년");
+        ReflectionTestUtils.setField(policy, "benefitDescription",
+                "가".repeat(ChatResponseRequestMapper.MAX_GROUNDING_TEXT_LENGTH + 50));
+        PolicyEligibilityResult eligibilityResult =
+                new PolicyEligibilityResult(EligibilityStatus.ELIGIBLE, "충족", List.of());
+
+        GroundingPolicy result = ChatResponseRequestMapper.toGroundingPolicies(
+                List.of(new ChatPolicyMatchResult(policy, eligibilityResult))).get(0);
+
+        assertThat(result.target()).isEqualTo("무주택 청년");
+        assertThat(result.benefit()).startsWith("가".repeat(ChatResponseRequestMapper.MAX_GROUNDING_TEXT_LENGTH))
+                .endsWith("…(생략)");
+    }
+
+    @Test
     void PolicyDetailResponse를_PolicyDetailGrounding으로_변환한다() {
         PolicyDetailResponse detail = new PolicyDetailResponse(
                 1L, "국민취업지원제도", "요약 문단", "설명", "만 15세 이상 69세 이하 구직자", "월 50만원 지급",

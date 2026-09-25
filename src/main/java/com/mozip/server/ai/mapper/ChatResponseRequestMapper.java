@@ -26,6 +26,8 @@ public class ChatResponseRequestMapper {
     /** 이전 챗봇 답변은 맥락 파악용이라 앞부분만 넘긴다. */
     static final int MAX_REPLY_LENGTH = 500;
     private static final String TRUNCATED_SUFFIX = "…(생략)";
+    /** 정책 목록 근거의 지원 대상·지원 내용은 추천 이유·비교표를 쓸 만큼만 앞부분을 넘긴다(정책 5개 기준 프롬프트 크기 제한). */
+    static final int MAX_GROUNDING_TEXT_LENGTH = 200;
 
     private ChatResponseRequestMapper() {
     }
@@ -51,7 +53,9 @@ public class ChatResponseRequestMapper {
                         match.policy().getTitle(),
                         match.eligibilityResult().overallStatus(),
                         match.policy().getApplicationEndDate(),
-                        blankToNull(match.policy().getSummary())))
+                        blankToNull(match.policy().getSummary()),
+                        truncate(match.policy().getTargetDescription(), MAX_GROUNDING_TEXT_LENGTH),
+                        truncate(match.policy().getBenefitDescription(), MAX_GROUNDING_TEXT_LENGTH)))
                 .toList();
     }
 
@@ -103,6 +107,14 @@ public class ChatResponseRequestMapper {
         String start = startDate != null ? startDate.format(DATE_FORMATTER) : "확인 필요";
         String end = endDate != null ? endDate.format(DATE_FORMATTER) : "확인 필요";
         return start + " ~ " + end;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        String text = blankToNull(value);
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + TRUNCATED_SUFFIX;
     }
 
     private static String blankToNull(String value) {
