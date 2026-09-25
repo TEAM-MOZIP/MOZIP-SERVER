@@ -146,6 +146,20 @@ class ApplicationGuideServiceTest {
     }
 
     @Test
+    void 준비서류_원문이_하이픈뿐이면_준비서류를_비운다() {
+        Policy policy = policy(1L, null, null);
+        PolicyApplicationInfo applicationInfo = applicationInfo(policy, null, "-");
+        when(policyRepository.findWithOrganizationById(1L)).thenReturn(Optional.of(policy));
+        when(policyEligibilityRepository.findByPolicyId(1L)).thenReturn(Optional.empty());
+        when(policyApplicationInfoRepository.findByPolicyId(1L)).thenReturn(Optional.of(applicationInfo));
+        when(policyAvailabilityEvaluator.evaluate(policy)).thenReturn(availabilityResult());
+
+        ApplicationGuideResponse response = applicationGuideService.getApplicationGuide(1L);
+
+        assertThat(response.requiredDocuments()).isEmpty();
+    }
+
+    @Test
     void eligibility가_없으면_requirements는_null이고_targetDescription은_그대로_노출된다() {
         Policy policy = policy(1L, "워크넷 온라인 신청", "만 15세 이상 청년");
         when(policyRepository.findWithOrganizationById(1L)).thenReturn(Optional.of(policy));

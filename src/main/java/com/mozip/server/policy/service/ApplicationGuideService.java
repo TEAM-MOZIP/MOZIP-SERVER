@@ -13,6 +13,7 @@ import com.mozip.server.policy.repository.PolicyApplicationInfoRepository;
 import com.mozip.server.policy.repository.PolicyEligibilityRepository;
 import com.mozip.server.policy.repository.PolicyRepository;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -31,6 +32,7 @@ public class ApplicationGuideService {
      * 원문을 잘라 보내면 뒤쪽 절차가 빠질 수 있으므로, 이 경우엔 AI를 거치지 않고 원문을 그대로 보여준다.
      */
     static final int MAX_AI_SOURCE_LENGTH = 1500;
+    private static final Pattern MEANINGFUL_TEXT = Pattern.compile("[\\p{L}\\p{N}]");
 
     private final PolicyRepository policyRepository;
     private final PolicyEligibilityRepository policyEligibilityRepository;
@@ -84,7 +86,7 @@ public class ApplicationGuideService {
         }
 
         return ApplicationGuideResponse.from(policy, eligibility, availabilityResult, applicationInfo, steps,
-                requiredDocuments);
+                withoutPlaceholders(requiredDocuments));
     }
 
     /**
@@ -135,6 +137,13 @@ public class ApplicationGuideService {
             return procedure;
         }
         return policy.getApplicationMethod();
+    }
+
+    /** 원문의 "-"처럼 글자·숫자가 하나도 없는 항목은 "없음" 표시이므로 준비 서류에서 뺀다. */
+    private static List<String> withoutPlaceholders(List<String> requiredDocuments) {
+        return requiredDocuments.stream()
+                .filter(document -> document != null && MEANINGFUL_TEXT.matcher(document).find())
+                .toList();
     }
 
     private List<String> buildRawRequiredDocuments(String requiredDocumentsText) {
