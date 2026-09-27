@@ -51,6 +51,7 @@ services:
     image: ghcr.io/team-mozip/mozip-ai:${AI_IMAGE_TAG:-latest}
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 10s
