@@ -57,6 +57,17 @@ FIELD_TO_CATEGORIES = {
 EXCLUDED_FIELDS = {"농림축산어업"}
 STARTUP_WORDS = re.compile(r"창업|스타트업|벤처|소상공인|사업화")
 
+# 비개인 대상 키워드 블랙리스트
+# 사용자구분이 비어 있거나 개인/가구가 포함된 경우에도 제목·요약에 이 패턴이 있으면 추가 제외.
+# "군인 가족/자녀" 같은 피부양자 혜택은 의도적으로 허용(가족/자녀가 개인 대상이므로).
+NON_INDIVIDUAL_RE = re.compile(
+    r"(법\s*인\s*(사업자\s*)?(전용|대상|지원금|융자)"
+    r"|기\s*업\s*(전용|대상\s*지원금|융자)"
+    r"|시\s*설\s*(전용|대상|지원)"
+    r"|단\s*체\s*(전용|대상|지원금)"
+    r")"
+)
+
 # 중위소득 구간 플래그 → (하한, 상한). 상한 None = 제한 없음
 INCOME_BRACKETS = [("JA0201", 0, 50), ("JA0202", 51, 75), ("JA0203", 76, 100), ("JA0204", 101, 200), ("JA0205", 201, None)]
 
@@ -213,9 +224,14 @@ def categories_of(row):
 
 def is_for_individuals(row):
     users = split_multi(row.get("사용자구분"))
-    if not users:
-        return True
-    return any(u in ("개인", "가구", "소상공인") for u in users)
+    # 1단계: 사용자구분 명시적 확인
+    if users and not any(u in ("개인", "가구", "소상공인") for u in users):
+        return False  # 법인/시설/단체 전용
+    # 2단계: 제목·요약 키워드 블랙리스트 (군인/선원 등 특수직 전용 서비스 추가 제거)
+    combined = f"{row.get('서비스명') or ''} {row.get('서비스목적요약') or ''}"
+    if NON_INDIVIDUAL_RE.search(combined):
+        return False
+    return True
 
 
 def eligibility_of(cond, selection_criteria):
@@ -316,7 +332,11 @@ def main():
             stats["제외: 농림축산어업"] += 1
             continue
         if not is_for_individuals(row):
-            stats["제외: 법인/시설/단체 전용"] += 1
+            users = split_multi(row.get("사용자구분"))
+            if users and not any(u in ("개인", "가구", "소상공인") for u in users):
+                stats["제외: 법인/시설/단체 전용"] += 1
+            else:
+                stats["제외: 비개인 키워드(군인·선원 등)"] += 1
             continue
         categories = categories_of(row)
         if not categories:
