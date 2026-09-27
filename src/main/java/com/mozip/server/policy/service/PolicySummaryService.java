@@ -18,6 +18,11 @@ import org.springframework.stereotype.Service;
 public class PolicySummaryService {
 
     private static final String GENERATION_VERSION = "v1";
+    /**
+     * AI에 보내는 원문 필드별 최대 길이. 정부24 원문이 수천 자인 정책은 요약 생성이 timeout(운영 nginx 15초 이내)을
+     * 넘기기 쉬워 앞부분만 보낸다. 캐시 해시는 전체 원문 기준이라 원문이 바뀌면 그대로 다시 생성된다.
+     */
+    static final int MAX_SOURCE_LENGTH = 1500;
 
     private final PolicyRepository policyRepository;
     private final PolicySummaryRepository policySummaryRepository;
@@ -50,7 +55,8 @@ public class PolicySummaryService {
         }
 
         String aiContent = policySummaryGenerationService.generate(
-                policy.getTitle(), policy.getDescription(), policy.getTargetDescription(), policy.getBenefitDescription());
+                policy.getTitle(), truncate(policy.getDescription()), truncate(policy.getTargetDescription()),
+                truncate(policy.getBenefitDescription()));
 
         if (aiContent == null) {
             return fallbackSummary(policy);
@@ -76,6 +82,13 @@ public class PolicySummaryService {
             }
             return fallbackSummary(policy);
         }
+    }
+
+    private String truncate(String value) {
+        if (value == null || value.length() <= MAX_SOURCE_LENGTH) {
+            return value;
+        }
+        return value.substring(0, MAX_SOURCE_LENGTH);
     }
 
     private boolean hasAnySource(Policy policy) {

@@ -27,9 +27,10 @@ class ChatResponseGenerationServiceTest {
     void AI_응답이_성공이면_reply를_반환한다() {
         when(chatResponseClient.respond(any())).thenReturn(new ChatResponseResponse("답변입니다."));
 
-        String reply = chatResponseGenerationService.generate("질문", List.of(), null, List.of(), List.of());
+        ChatResponseResponse response =
+                chatResponseGenerationService.generate("질문", List.of(), null, List.of(), List.of());
 
-        assertThat(reply).isEqualTo("답변입니다.");
+        assertThat(response.reply()).isEqualTo("답변입니다.");
     }
 
     @Test

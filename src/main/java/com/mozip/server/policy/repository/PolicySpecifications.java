@@ -1,16 +1,21 @@
 package com.mozip.server.policy.repository;
 
 import com.mozip.server.policy.domain.AgeGroup;
+import com.mozip.server.policy.domain.AvailabilityFilter;
+import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.Policy;
 import com.mozip.server.policy.entity.PolicyCategory;
 import com.mozip.server.policy.entity.PolicyEligibility;
 import com.mozip.server.policy.entity.PolicyRegion;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
+import com.mozip.server.policy.evaluator.PolicyAvailabilityEvaluator;
 import com.mozip.server.region.entity.Region;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import java.time.LocalDate;
 import org.springframework.data.jpa.domain.Specification;
 
 public class PolicySpecifications {
@@ -71,6 +76,43 @@ public class PolicySpecifications {
             return null;
         }
         return (root, query, cb) -> cb.equal(root.get("status"), status);
+    }
+
+    /**
+     * {@code PolicyAvailabilityEvaluator}와 같은 규칙으로 신청 가능 상태를 거른다.
+     * CLOSED·DRAFT·SUSPENDED는 항상 제외되고, 신청기간이 없거나 뒤집힌 정책(판정 보류)은 어느 상태에도 속하지 않는다.
+     */
+    public static Specification<Policy> hasAvailability(AvailabilityFilter filter, LocalDate today) {
+        if (filter == null) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            Path<PolicyStatus> status = root.get("status");
+            Path<ApplicationType> applicationType = root.get("applicationType");
+            Path<LocalDate> startDate = root.get("applicationStartDate");
+            Path<LocalDate> endDate = root.get("applicationEndDate");
+
+            Predicate openStatus = cb.equal(status, PolicyStatus.OPEN);
+            Predicate validPeriod = cb.and(
+                    cb.equal(applicationType, ApplicationType.PERIOD),
+                    cb.isNotNull(startDate),
+                    cb.isNotNull(endDate),
+                    cb.lessThanOrEqualTo(startDate, endDate));
+            Predicate withinPeriod = cb.and(validPeriod,
+                    cb.lessThanOrEqualTo(startDate, today),
+                    cb.greaterThanOrEqualTo(endDate, today));
+
+            return switch (filter) {
+                case OPEN -> cb.or(
+                        cb.equal(status, PolicyStatus.ALWAYS_OPEN),
+                        cb.and(openStatus, cb.equal(applicationType, ApplicationType.ALWAYS)),
+                        cb.and(openStatus, withinPeriod));
+                case CLOSING_SOON -> cb.and(openStatus, withinPeriod,
+                        cb.lessThanOrEqualTo(endDate,
+                                today.plusDays(PolicyAvailabilityEvaluator.CLOSING_SOON_THRESHOLD_DAYS)));
+                case UPCOMING -> cb.and(openStatus, validPeriod, cb.greaterThan(startDate, today));
+            };
+        };
     }
 
     public static Specification<Policy> hasAgeGroup(AgeGroup ageGroup) {

@@ -68,6 +68,39 @@ class ChatPolicyMatchComparatorTest {
         assertThat(sorted).containsExactly(smaller, larger);
     }
 
+    @Test
+    void 키워드_관련도가_높은_정책이_eligibility보다_먼저_정렬된다() {
+        ChatPolicyMatchResult eligibleUnrelated = match(1L, EligibilityStatus.ELIGIBLE, null, null);
+        ChatPolicyMatchResult needsReviewRelated = match(2L, EligibilityStatus.NEEDS_REVIEW, null, null)
+                .withRelevanceScore(3);
+
+        List<ChatPolicyMatchResult> sorted = sort(eligibleUnrelated, needsReviewRelated);
+
+        assertThat(sorted).containsExactly(needsReviewRelated, eligibleUnrelated);
+    }
+
+    @Test
+    void 관련도가_같으면_기존_기준으로_정렬된다() {
+        ChatPolicyMatchResult needsReview = match(1L, EligibilityStatus.NEEDS_REVIEW, null, null).withRelevanceScore(3);
+        ChatPolicyMatchResult eligible = match(2L, EligibilityStatus.ELIGIBLE, null, null).withRelevanceScore(3);
+
+        List<ChatPolicyMatchResult> sorted = sort(needsReview, eligible);
+
+        assertThat(sorted).containsExactly(eligible, needsReview);
+    }
+
+    @Test
+    void 관련도가_같으면_나이_지역을_콕_집는_정책이_먼저_정렬된다() {
+        ChatPolicyMatchResult eligibleGeneral = match(1L, EligibilityStatus.ELIGIBLE, null, null);
+        ChatPolicyMatchResult targeted = new ChatPolicyMatchResult(
+                match(2L, EligibilityStatus.NEEDS_REVIEW, null, null).policy(),
+                new PolicyEligibilityResult(EligibilityStatus.NEEDS_REVIEW, "테스트", List.of()), 2);
+
+        List<ChatPolicyMatchResult> sorted = sort(eligibleGeneral, targeted);
+
+        assertThat(sorted).containsExactly(targeted, eligibleGeneral);
+    }
+
     private List<ChatPolicyMatchResult> sort(ChatPolicyMatchResult... matches) {
         return List.of(matches).stream().sorted(ChatPolicyMatchComparator.comparator()).toList();
     }

@@ -20,13 +20,16 @@ import com.mozip.server.policy.domain.PolicyAvailability;
 import com.mozip.server.policy.domain.PolicyAvailabilityReason;
 import com.mozip.server.policy.dto.PolicyAvailabilityResponse;
 import com.mozip.server.policy.dto.PolicyDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageDetailResponse;
+import com.mozip.server.policy.dto.PolicyPackageSectionResponse;
+import com.mozip.server.policy.dto.PolicyPackageSummaryResponse;
 import com.mozip.server.policy.dto.PolicySearchRequest;
 import com.mozip.server.policy.dto.PolicySummaryResponse;
-import com.mozip.server.policy.dto.PublicPolicyPackageResponse;
 import com.mozip.server.policy.entity.ApplicationType;
 import com.mozip.server.policy.entity.PolicyStatus;
 import com.mozip.server.policy.entity.RegionScope;
 import com.mozip.server.policy.exception.PolicyNotFoundException;
+import com.mozip.server.policy.exception.PolicyPackageNotFoundException;
 import com.mozip.server.policy.service.PolicyService;
 import java.time.LocalDate;
 import java.util.List;
@@ -65,7 +68,7 @@ class PolicyControllerTest {
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
-        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/policies"))
@@ -86,7 +89,7 @@ class PolicyControllerTest {
         );
         PageResponse<PolicySummaryResponse> page =
                 new PageResponse<>(List.of(summary), 0, 20, 1, 1, true, true);
-        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class)))
+        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/policies/recommended"))
@@ -181,34 +184,87 @@ class PolicyControllerTest {
     @Test
     void ageGroup_파라미터가_Service에_전달된다() throws Exception {
         PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
-        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class))).thenReturn(page);
+        when(policyService.searchPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull())).thenReturn(page);
 
         mockMvc.perform(get("/api/policies").param("ageGroup", "AGE_25_29"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
-        verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class));
+        verify(policyService).searchPolicies(conditionCaptor.capture(), any(Pageable.class), isNull());
         assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.AGE_25_29);
     }
 
     @Test
-    void 공개_패키지_조회는_인증_없이_200을_반환한다() throws Exception {
-        PolicySummaryResponse summary = new PolicySummaryResponse(
+    void 공개_추천_목록에도_ageGroup_파라미터가_Service에_전달된다() throws Exception {
+        PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(), 0, 20, 0, 0, true, true);
+        when(policyService.getRecommendedPolicies(any(PolicySearchRequest.class), any(Pageable.class), isNull()))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/policies/recommended").param("ageGroup", "UNDER_19"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<PolicySearchRequest> conditionCaptor = ArgumentCaptor.forClass(PolicySearchRequest.class);
+        verify(policyService).getRecommendedPolicies(conditionCaptor.capture(), any(Pageable.class), isNull());
+        assertThat(conditionCaptor.getValue().ageGroup()).isEqualTo(AgeGroup.UNDER_19);
+    }
+
+    @Test
+    void 공개_패키지_목록_조회는_인증_없이_200을_반환한다() throws Exception {
+        when(policyService.getPackages()).thenReturn(List.of(new PolicyPackageSummaryResponse("job-seeker", 42)));
+
+        mockMvc.perform(get("/api/policies/packages"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].packageId").value("job-seeker"))
+                .andExpect(jsonPath("$[0].policyCount").value(42));
+    }
+
+    @Test
+    void 공개_패키지_상세_조회는_섹션별_개수와_미리보기를_반환한다() throws Exception {
+        PolicyPackageDetailResponse<PolicySummaryResponse> detail = new PolicyPackageDetailResponse<>("solo-youth", 1,
+                List.of(new PolicyPackageSectionResponse<>("rent", "월세·전세", 1, List.of(sampleSummary()))));
+        when(policyService.getPackage("solo-youth")).thenReturn(detail);
+
+        mockMvc.perform(get("/api/policies/packages/solo-youth"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.packageId").value("solo-youth"))
+                .andExpect(jsonPath("$.sections[0].sectionKey").value("rent"))
+                .andExpect(jsonPath("$.sections[0].sectionName").value("월세·전세"))
+                .andExpect(jsonPath("$.sections[0].totalCount").value(1))
+                .andExpect(jsonPath("$.sections[0].policies[0].title").value("청년 월세 지원"))
+                .andExpect(jsonPath("$.sections[0].policies[0].eligibility").doesNotExist());
+    }
+
+    @Test
+    void 공개_패키지_섹션_조회는_페이지_파라미터를_전달한다() throws Exception {
+        PageResponse<PolicySummaryResponse> page = new PageResponse<>(List.of(sampleSummary()), 1, 12, 13, 2, false, true);
+        when(policyService.getPackageSectionPolicies(eq("solo-youth"), eq("rent"), any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(get("/api/policies/packages/solo-youth/sections/rent").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].title").value("청년 월세 지원"))
+                .andExpect(jsonPath("$.totalElements").value(13));
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(policyService).getPackageSectionPolicies(eq("solo-youth"), eq("rent"), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(12);
+    }
+
+    @Test
+    void 존재하지_않는_패키지를_조회하면_404를_반환한다() throws Exception {
+        when(policyService.getPackage("unknown")).thenThrow(new PolicyPackageNotFoundException("unknown"));
+
+        mockMvc.perform(get("/api/policies/packages/unknown"))
+                .andExpect(status().isNotFound());
+    }
+
+    private PolicySummaryResponse sampleSummary() {
+        return new PolicySummaryResponse(
                 1L, "청년 월세 지원", "월세 지원 사업", "서울특별시",
                 ApplicationType.PERIOD, LocalDate.now(), LocalDate.now().plusMonths(3),
                 RegionScope.REGIONAL, PolicyStatus.OPEN,
                 new PolicyAvailabilityResponse(PolicyAvailability.AVAILABLE, PolicyAvailabilityReason.WITHIN_APPLICATION_PERIOD,
                         true)
         );
-        PublicPolicyPackageResponse packageResponse = new PublicPolicyPackageResponse(1L, "청년정책", List.of(summary));
-        when(policyService.getPackages()).thenReturn(List.of(packageResponse));
-
-        mockMvc.perform(get("/api/policies/packages"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].categoryId").value(1))
-                .andExpect(jsonPath("$[0].categoryName").value("청년정책"))
-                .andExpect(jsonPath("$[0].policies[0].title").value("청년 월세 지원"))
-                .andExpect(jsonPath("$[0].policies[0].eligibility").doesNotExist())
-                .andExpect(jsonPath("$[0].policies[0].bookmarked").doesNotExist());
     }
 }

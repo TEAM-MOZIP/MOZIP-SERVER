@@ -77,9 +77,29 @@ public class ChatPolicySearchService {
                             .toList();
                     PolicyEligibilityResult eligibilityResult =
                             chatConditionEvaluator.evaluate(condition, policy, regionIds, eligibility, userRegion);
-                    return new ChatPolicyMatchResult(policy, eligibilityResult);
+                    return new ChatPolicyMatchResult(policy, eligibilityResult,
+                            targetingScore(condition, policy, eligibility, regionIds, userRegion));
                 })
                 .toList();
+    }
+
+    /** 나이 제한이 명시돼 사용자 나이를 콕 집는 정책 +1, 사용자 지역에 한정된 지역 정책 +1. */
+    private int targetingScore(ChatCondition condition, Policy policy, PolicyEligibility eligibility,
+                               List<Long> policyRegionIds, Region userRegion) {
+        int score = 0;
+        Integer age = condition.age();
+        if (age != null && eligibility != null
+                && (eligibility.getMinimumAge() != null || eligibility.getMaximumAge() != null)
+                && (eligibility.getMinimumAge() == null || age >= eligibility.getMinimumAge())
+                && (eligibility.getMaximumAge() == null || age <= eligibility.getMaximumAge())) {
+            score++;
+        }
+        if (userRegion != null && policy.getRegionScope() == RegionScope.REGIONAL
+                && (policyRegionIds.contains(userRegion.getId())
+                || (userRegion.getParent() != null && policyRegionIds.contains(userRegion.getParent().getId())))) {
+            score++;
+        }
+        return score;
     }
 
     private Region resolveUserRegion(Long regionId) {

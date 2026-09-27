@@ -30,7 +30,8 @@ public class ChatResponseGenerationService {
         this.chatResponseClient = chatResponseClient;
     }
 
-    public String generate(String message, List<GroundingPolicy> groundingPolicies, PolicyDetailGrounding policyDetail,
+    /** AI 답변(요약 문장 + 블록 + 후속 질문). 요약 문장(reply)이 비어 있으면 실패로 본다. */
+    public ChatResponseResponse generate(String message, List<GroundingPolicy> groundingPolicies, PolicyDetailGrounding policyDetail,
                             List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history) {
         ChatResponseRequest request =
                 new ChatResponseRequest(message, groundingPolicies, policyDetail, unresolvedConditions, history);
@@ -48,6 +49,6 @@ public class ChatResponseGenerationService {
             throw new ChatResponseUnavailableException();
         }
 
-        return response.reply();
+        return response;
     }
 }

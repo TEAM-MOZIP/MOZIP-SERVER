@@ -164,6 +164,43 @@ class ChatPolicySearchServiceTest {
         assertThat(regionIdsCaptor.getValue()).containsExactly(seoul.getId());
     }
 
+    @Test
+    void 나이_제한이_사용자_나이를_포함하거나_사용자_지역에_한정된_정책일수록_targetingScore가_높다() {
+        Region seoul = region(10L, "SEOUL");
+        Region yangcheon = Region.builder().code("SEOUL_YANGCHEON").name("양천구").parent(seoul).build();
+        ReflectionTestUtils.setField(yangcheon, "id", 11L);
+        ChatCondition youthInYangcheon = new ChatCondition(25, yangcheon.getId(), null, null, null, null);
+
+        Policy youthNational = policy(1L, RegionScope.NATIONAL);
+        Policy anyoneNational = policy(2L, RegionScope.NATIONAL);
+        Policy seoulWide = policy(3L, RegionScope.REGIONAL);
+        Policy youthYangcheon = policy(4L, RegionScope.REGIONAL);
+        Policy olderNational = policy(5L, RegionScope.NATIONAL);
+
+        when(policyRepository.findAll())
+                .thenReturn(List.of(youthNational, anyoneNational, seoulWide, youthYangcheon, olderNational));
+        when(policyEligibilityRepository.findByPolicyIdIn(anyList())).thenReturn(List.of(
+                PolicyEligibility.builder().policy(youthNational).minimumAge(19).maximumAge(34).build(),
+                PolicyEligibility.builder().policy(youthYangcheon).minimumAge(19).maximumAge(39).build(),
+                PolicyEligibility.builder().policy(olderNational).minimumAge(30).maximumAge(39).build()));
+        when(policyRegionRepository.findByPolicyIdIn(anyList())).thenReturn(List.of(
+                PolicyRegion.builder().policy(seoulWide).region(seoul).build(),
+                PolicyRegion.builder().policy(youthYangcheon).region(yangcheon).build()));
+        when(regionRepository.findById(yangcheon.getId())).thenReturn(Optional.of(yangcheon));
+        when(chatConditionEvaluator.evaluate(any(), any(), anyList(), any(), any()))
+                .thenReturn(new PolicyEligibilityResult(EligibilityStatus.NEEDS_REVIEW, "테스트", List.of()));
+
+        List<ChatPolicyMatchResult> results = chatPolicySearchService.search(youthInYangcheon);
+
+        assertThat(results).extracting(r -> r.policy().getId(), ChatPolicyMatchResult::targetingScore)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1L, 1),
+                        org.assertj.core.groups.Tuple.tuple(2L, 0),
+                        org.assertj.core.groups.Tuple.tuple(3L, 1),
+                        org.assertj.core.groups.Tuple.tuple(4L, 2),
+                        org.assertj.core.groups.Tuple.tuple(5L, 0));
+    }
+
     private Policy policy(Long id, RegionScope regionScope) {
         Policy policy = Policy.builder()
                 .title("테스트 정책 " + id)

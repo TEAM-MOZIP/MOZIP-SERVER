@@ -14,12 +14,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class PolicyAvailabilityEvaluator {
 
-    private static final long CLOSING_SOON_THRESHOLD_DAYS = 3;
+    public static final long CLOSING_SOON_THRESHOLD_DAYS = 3;
 
     private final Clock clock;
 
     public PolicyAvailabilityEvaluator(Clock clock) {
         this.clock = clock;
+    }
+
+    /** 판정 기준일(오늘). 목록 필터(PolicySpecifications.hasAvailability)가 같은 기준일을 쓰도록 노출한다. */
+    public LocalDate today() {
+        return LocalDate.now(clock);
     }
 
     public PolicyAvailabilityResult evaluate(Policy policy) {
