@@ -74,7 +74,10 @@ class ChatAnswerAssembler {
             addServerBlocks(responseType, blocks, detail);
         }
 
-        return new ChatResponse(answer.reply(), matchedPolicies, unresolvedConditions, responseType, blocks,
+        // TERM 답변에는 정책 카드가 필요 없다 — groundingPolicies에서 온 정책들을 보여주지 않는다.
+        List<ChatMatchedPolicyResponse> effectiveMatchedPolicies =
+                TERM.equals(responseType) ? List.of() : matchedPolicies;
+        return new ChatResponse(answer.reply(), effectiveMatchedPolicies, unresolvedConditions, responseType, blocks,
                 answer.followUps());
     }
 

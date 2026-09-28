@@ -5,6 +5,7 @@ import com.mozip.server.ai.dto.ConditionExtractionResponse;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.ai.dto.UnresolvedCondition;
+import com.mozip.server.ai.dto.UserConditionGrounding;
 import com.mozip.server.ai.mapper.ChatResponseRequestMapper;
 import com.mozip.server.ai.service.ChatResponseGenerationService;
 import com.mozip.server.ai.service.ConditionExtractionService;
@@ -63,6 +64,9 @@ public class ChatService {
     /** 자격을 묻는 질문 표현. 이때만 이전 메시지 조건까지 모아 자격을 판정한다. */
     private static final Pattern ELIGIBILITY_QUESTION =
             Pattern.compile("받을\\s?수|자격|해당(돼|되|하|이)|신청할\\s?수|대상(이|인|에|일)");
+    /** 용어·개념의 뜻을 묻는 질문 표현. 이때는 키워드로 정책을 검색하지 않고 AI가 용어를 설명하게 한다. */
+    private static final Pattern TERM_QUESTION =
+            Pattern.compile("뜻이\\s?뭐|뭔\\s?뜻|무슨\\s?뜻|이\\s?뭐야|가\\s?뭐야|이란\\s?뭐|뭐예요\\??$|무엇인가요|무엇인지|뜻은|이란\\s?무엇|개념이\\s?뭐|란\\s?뭔가");
     private static final ChatCondition EMPTY_CONDITION = new ChatCondition(null, null, null, null, null, null);
 
     private final ConditionExtractionService conditionExtractionService;
@@ -100,6 +104,17 @@ public class ChatService {
     public ChatResponse handle(ChatRequest request) {
         String message = request.message();
         List<ChatTurn> history = request.history();
+
+        // 용어·개념 뜻을 묻는 질문은 조건 추출·정책 검색을 모두 건너뛴다.
+        // handleGeneralOrKeywordSearch에만 체크가 있으면 조건 추출이 소득/지역 등을 잡아
+        // handleConditionSearch 경로로 빠질 때 TERM 판단을 놓친다.
+        if (isTermQuestion(message)) {
+            ChatResponseResponse termAnswer = chatResponseGenerationService.generate(
+                    message, List.of(), null, List.of(),
+                    ChatResponseRequestMapper.toAiChatTurns(history));
+            return chatAnswerAssembler.assemble(termAnswer, Map.of(), null, List.of(), List.of());
+        }
+
         ConditionExtractionResponse current = conditionExtractionService.extract(message);
         List<String> keywords = ChatKeywordExpander.expand(ChatKeywordExtractor.extract(message));
         boolean currentActionable = hasActionableAxis(current);
@@ -129,12 +144,13 @@ public class ChatService {
 
         // 조건도 주제 키워드도 없는 메시지("신청 기간은?", "두 정책 비교해줘")는 이전 턴 정책에 대한 후속 질문이거나
         // 일반 질문이다. 이전 턴에 카드로 보여준 정책이 있으면 그 정책을 근거로 넘기고, 문맥 해석은 AI에 맡긴다.
+        // 키워드가 있어도 이전 턴 정책이 1개면 그 정책에 대한 후속 질문으로 우선 처리한다("어떤 소송을 지원해줘?" 등).
+        List<Policy> previousPolicies = previousTurnPolicies(history, policies);
+        if (previousPolicies.size() == 1) {
+            return handlePolicyDetail(message, current, previousPolicies, keywords,
+                    unresolvedConditionsOf(current), history, userText);
+        }
         if (keywords.isEmpty()) {
-            List<Policy> previousPolicies = previousTurnPolicies(history, policies);
-            if (previousPolicies.size() == 1) {
-                return handlePolicyDetail(message, current, previousPolicies, keywords,
-                        unresolvedConditionsOf(current), history, userText);
-            }
             if (previousPolicies.size() > 1) {
                 return handlePolicySet(message, current, previousPolicies, unresolvedConditionsOf(current), history);
             }
@@ -151,6 +167,11 @@ public class ChatService {
                     contextKeywords, history, userText);
         }
         return handleGeneralOrKeywordSearch(message, current, policies, keywords, history, userText);
+    }
+
+    /** 용어·개념의 뜻을 묻는 질문이면 true — 이때는 키워드로 정책을 검색하지 않는다. */
+    private boolean isTermQuestion(String message) {
+        return TERM_QUESTION.matcher(message).find();
     }
 
     /**
@@ -251,7 +272,8 @@ public class ChatService {
         scoringKeywords.addAll(contextKeywords);
         List<ChatPolicyMatchResult> top =
                 selectTop(chatPolicySearchService.search(condition), scoringKeywords, relevanceTiers, userText);
-        return respondWithPolicies(message, top, unresolvedConditions, history, true);
+        return respondWithPolicies(message, top, unresolvedConditions, history, true,
+                toUserConditionGrounding(extraction));
     }
 
     /**
@@ -297,10 +319,16 @@ public class ChatService {
     private ChatResponse respondWithPolicies(String message, List<ChatPolicyMatchResult> top,
                                              List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history,
                                              boolean withEligibility) {
+        return respondWithPolicies(message, top, unresolvedConditions, history, withEligibility, null);
+    }
+
+    private ChatResponse respondWithPolicies(String message, List<ChatPolicyMatchResult> top,
+                                             List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history,
+                                             boolean withEligibility, UserConditionGrounding userCondition) {
         List<GroundingPolicy> groundingPolicies = ChatResponseRequestMapper.toGroundingPolicies(top);
 
         ChatResponseResponse answer = chatResponseGenerationService.generate(message, groundingPolicies, null,
-                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history));
+                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history), userCondition);
 
         return chatAnswerAssembler.assemble(answer, withEligibility ? eligibilityOf(top) : Map.of(), null,
                 top.stream().map(ChatMatchedPolicyResponse::from).toList(),
@@ -322,7 +350,7 @@ public class ChatService {
                                                       List<ChatTurn> history, String userText) {
         List<UnresolvedCondition> unresolvedConditions = unresolvedConditionsOf(extraction);
 
-        if (hasTitleMatchedPolicy(policies, keywords)) {
+        if (!isTermQuestion(message) && hasTitleMatchedPolicy(policies, keywords)) {
             List<ChatPolicyMatchResult> top = selectTop(chatPolicySearchService.search(EMPTY_CONDITION), keywords,
                     List.of(match -> ChatPolicyRelevanceScorer.matchesTitle(match.policy(), keywords)), userText);
             if (!top.isEmpty()) {
@@ -381,9 +409,10 @@ public class ChatService {
                 .limit(RELATED_WITH_DETAIL)
                 .toList();
 
+        UserConditionGrounding detailUserCondition = condition != null ? toUserConditionGrounding(mergeWithHistoryConditions(current, history)) : null;
         ChatResponseResponse answer = chatResponseGenerationService.generate(message,
                 ChatResponseRequestMapper.toGroundingPolicies(related), policyDetail, unresolvedConditions,
-                ChatResponseRequestMapper.toAiChatTurns(history));
+                ChatResponseRequestMapper.toAiChatTurns(history), detailUserCondition);
 
         List<ChatPolicyMatchResult> shown = new ArrayList<>();
         if (primaryCard != null) {
@@ -474,6 +503,25 @@ public class ChatService {
         Long regionId = resolveRegionId(extraction.regionCode());
         return new ChatCondition(extraction.age(), regionId, extraction.employmentStatus(), extraction.householdType(),
                 extraction.incomeType(), extraction.incomeValue());
+    }
+
+    private UserConditionGrounding toUserConditionGrounding(ConditionExtractionResponse extraction) {
+        if (extraction == null || !hasActionableAxis(extraction)) {
+            return null;
+        }
+        String regionName = extraction.regionCode() != null
+                ? regionRepository.findByCode(extraction.regionCode())
+                        .map(r -> r.getName())
+                        .orElse(null)
+                : null;
+        return new UserConditionGrounding(
+                extraction.age(),
+                regionName,
+                extraction.employmentStatus() != null ? extraction.employmentStatus().name() : null,
+                extraction.householdType() != null ? extraction.householdType().name() : null,
+                extraction.incomeType() != null ? extraction.incomeType().name() : null,
+                extraction.incomeValue()
+        );
     }
 
     private Long resolveRegionId(String regionCode) {
