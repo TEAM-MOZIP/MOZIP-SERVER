@@ -114,7 +114,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract("25살인데 받을 정책 있어?")).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "정책A", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 6, 30))));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
 
@@ -136,7 +136,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(regionRepository.findByCode("SEOUL")).thenReturn(Optional.of(seoul));
         when(chatPolicySearchService.search(any())).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         chatService.handle(request("서울 사는 사람이 받을 정책 있어?"));
 
@@ -148,10 +148,8 @@ class ChatServiceTest {
     @Test
     void CaseB_actionable_axis가_없고_제목도_매칭되지_않으면_일반_fallback으로_처리한다() {
         setUp();
-        ConditionExtractionResponse extraction = extraction(null, null, null, null, null, null, null, List.of());
-        when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         ChatResponse response = chatService.handle(request("기준중위소득이 뭐야?"));
@@ -159,6 +157,7 @@ class ChatServiceTest {
         assertThat(response.reply()).isEqualTo("일반 답변");
         assertThat(response.matchedPolicies()).isEmpty();
         verify(chatPolicySearchService, never()).search(any());
+        verify(conditionExtractionService, never()).extract(any());
     }
 
     @Test
@@ -168,7 +167,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도"), policy(2L, "청년월세지원")));
         when(policyService.getPolicyDetail(1L, null)).thenReturn(policyDetail(1L, "국민취업지원제도"));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), any(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), any(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("정책 설명"));
 
         ChatResponse response = chatService.handle(request("국민취업지원제도가 뭐야?"));
@@ -183,7 +182,7 @@ class ChatServiceTest {
         ConditionExtractionResponse extraction = extraction(null, null, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "청년"), policy(2L, "청년월세지원")));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         chatService.handle(request("청년월세지원이 뭐야?"));
@@ -197,7 +196,7 @@ class ChatServiceTest {
         ConditionExtractionResponse extraction = extraction(Gender.FEMALE, null, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         chatService.handle(request("저는 여성입니다."));
@@ -214,7 +213,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(regionRepository.findByCode("SEOUL")).thenReturn(Optional.of(region(10L, "SEOUL")));
         when(chatPolicySearchService.search(any())).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), eq(List.of(unresolved)), anyList()))
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), eq(List.of(unresolved)), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("서울 사는 프리랜서가 받을 정책 있어?"));
@@ -236,7 +235,7 @@ class ChatServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("15살인데 받을 정책 있어?"));
@@ -266,7 +265,7 @@ class ChatServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         chatService.handle(request("25살인데 받을 정책 있어?"));
@@ -281,7 +280,7 @@ class ChatServiceTest {
         setUp();
         when(conditionExtractionService.extract(any())).thenReturn(null);
         when(policyRepository.findAll()).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), eq(List.of()), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), eq(List.of()), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         ChatResponse response = chatService.handle(request("아무 조건도 없는 질문"));
@@ -296,7 +295,7 @@ class ChatServiceTest {
         ConditionExtractionResponse extraction = extraction(null, 25, null, null, null, null, null, List.of());
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any()))
                 .thenThrow(new ChatResponseUnavailableException());
 
         assertThatThrownBy(() -> chatService.handle(request("25살인데 받을 정책 있어?")))
@@ -313,7 +312,7 @@ class ChatServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<com.mozip.server.ai.dto.ChatTurn>> historyCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), historyCaptor.capture()))
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), historyCaptor.capture(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 ~ 제도입니다."));
@@ -330,15 +329,14 @@ class ChatServiceTest {
     @Test
     void history가_없어도_기존과_동일하게_동작한다() {
         setUp();
-        ConditionExtractionResponse extraction = extraction(null, null, null, null, null, null, null, List.of());
-        when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), eq(List.of())))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), eq(List.of()), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         ChatResponse response = chatService.handle(new ChatRequest("기준중위소득이 뭐야?", null));
 
         assertThat(response.reply()).isEqualTo("일반 답변");
+        verify(conditionExtractionService, never()).extract(any());
     }
 
     @Test
@@ -350,7 +348,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "적격 정책", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 6, 30)),
                 matchResult(2L, "확인필요 정책", EligibilityStatus.NEEDS_REVIEW, LocalDate.of(2026, 7, 31))));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
 
@@ -366,7 +364,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "적격이지만 마감", EligibilityStatus.ELIGIBLE, LocalDate.of(2025, 6, 30)),
                 matchResult(2L, "확인필요인데 마감", EligibilityStatus.NEEDS_REVIEW, LocalDate.of(2025, 7, 31))));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
@@ -382,7 +380,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "적격이지만 마감확인필요", EligibilityStatus.ELIGIBLE, null)));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
@@ -399,7 +397,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "정책1", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 6, 30)),
                 matchResult(2L, "정책2", EligibilityStatus.ELIGIBLE, LocalDate.of(2026, 7, 31))));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
 
@@ -414,7 +412,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "정책1", EligibilityStatus.ELIGIBLE, LocalDate.of(2025, 6, 30))));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("25살인데 받을 정책 있어?"));
@@ -426,15 +424,14 @@ class ChatServiceTest {
     @Test
     void CaseB나_CaseC에서는_PolicyAvailabilityEvaluator를_호출하지_않는다() {
         setUp();
-        ConditionExtractionResponse extraction = extraction(null, null, null, null, null, null, null, List.of());
-        when(conditionExtractionService.extract(any())).thenReturn(extraction);
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("일반 답변"));
 
         chatService.handle(request("기준중위소득이 뭐야?"));
 
         verify(policyAvailabilityEvaluator, never()).evaluate(any());
+        verify(conditionExtractionService, never()).extract(any());
     }
 
     @Test
@@ -448,7 +445,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "서울시 청년월세지원", "청년 월세 부담 완화", EligibilityStatus.NEEDS_REVIEW)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn("안녕 나는 스무살 여자야. 청년 지원 정책 알려줘", "어떤 분야를 찾으세요?"));
         ChatResponse response = chatService.handle(new ChatRequest("월세 관련해서", history));
@@ -471,7 +468,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "평생교육 이용권", "성인 대상 교육비 지원", EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "대학생 교육 지원", "대학생 대상 교육 프로그램", EligibilityStatus.NEEDS_REVIEW)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn(first, "대학생 정책이에요."));
         ChatResponse response = chatService.handle(new ChatRequest("교육 관련해서 궁금해", history));
@@ -492,7 +489,7 @@ class ChatServiceTest {
                 matchResult(1L, "어업인안전조업교육지원", "어업인 대상 안전조업 교육", EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "중.장기복무 전역예정군인 전직교육서비스", "전직 교육", EligibilityStatus.ELIGIBLE),
                 matchResult(3L, "평생교육 이용권", "성인 대상 교육비 지원", EligibilityStatus.NEEDS_REVIEW)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn(first, "대학생 정책이에요."));
         ChatResponse response = chatService.handle(new ChatRequest("교육 관련해서 궁금해", history));
@@ -509,7 +506,7 @@ class ChatServiceTest {
                 .thenReturn(extraction(null, 20, "SEOUL", null, null, null, null, List.of()));
         when(regionRepository.findByCode("SEOUL")).thenReturn(Optional.of(region(10L, "SEOUL")));
         when(chatPolicySearchService.search(any())).thenReturn(List.of());
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn("20살인데 월세 지원 알려줘", "..."));
         chatService.handle(new ChatRequest("아 사실 25살이야", history));
@@ -526,7 +523,7 @@ class ChatServiceTest {
         when(conditionExtractionService.extract("신청 기간은?"))
                 .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("history 기반 답변"));
 
         List<ChatTurn> history = List.of(new ChatTurn("25살 취업 지원 알려줘", "국민취업지원제도가 있어요."));
@@ -547,7 +544,7 @@ class ChatServiceTest {
                 matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "월세 지원", null, EligibilityStatus.NEEDS_REVIEW),
                 matchResult(3L, "서울시 청년월세지원", "청년 월세", EligibilityStatus.NEEDS_REVIEW)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("20살인데 청년 월세 알려줘"));
 
@@ -562,7 +559,7 @@ class ChatServiceTest {
                 .thenReturn(extraction(null, 20, null, null, null, null, null, List.of()));
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResult(1L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE)));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("못 찾았어요"));
 
         ChatResponse response = chatService.handle(request("20살인데 월세 알려줘"));
@@ -579,7 +576,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResultWithTarget(1L, "생활안정자금 융자", "청년, 대학생, 구직자 등", EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "일반 상환 학자금대출", null, EligibilityStatus.NEEDS_REVIEW)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("22살 대학생 정책 알려줘"));
 
@@ -596,7 +593,7 @@ class ChatServiceTest {
         when(chatPolicySearchService.search(any())).thenReturn(List.of(
                 matchResultWithTarget(1L, "생활안정자금 융자", "청년, 대학생, 구직자 등", EligibilityStatus.ELIGIBLE),
                 matchResult(2L, "국민취업지원제도", null, EligibilityStatus.ELIGIBLE)));
-        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList())).thenReturn(new ChatResponseResponse("답변"));
+        when(chatResponseGenerationService.generate(any(), anyList(), isNull(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("22살 대학생 정책 알려줘"));
 
@@ -622,7 +619,7 @@ class ChatServiceTest {
         ArgumentCaptor<com.mozip.server.ai.dto.PolicyDetailGrounding> detailCaptor =
                 ArgumentCaptor.forClass(com.mozip.server.ai.dto.PolicyDetailGrounding.class);
         when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), detailCaptor.capture(), anyList(),
-                anyList())).thenReturn(new ChatResponseResponse("정책 설명"));
+                anyList(), any())).thenReturn(new ChatResponseResponse("정책 설명"));
 
         ChatResponse response = chatService.handle(request("효행장려금 지급 정책에 대해서 알려줘"));
 
@@ -640,7 +637,7 @@ class ChatServiceTest {
                 .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
         when(policyRepository.findAll()).thenReturn(List.of(policy(1L, "국민취업지원제도")));
         when(policyService.getPolicyDetail(1L, null)).thenReturn(policyDetail(1L, "국민취업지원제도"));
-        when(chatResponseGenerationService.generate(any(), anyList(), any(), anyList(), anyList())).thenReturn(new ChatResponseResponse("정책 설명"));
+        when(chatResponseGenerationService.generate(any(), anyList(), any(), anyList(), anyList(), any())).thenReturn(new ChatResponseResponse("정책 설명"));
 
         List<ChatTurn> history = List.of(new ChatTurn("나 25살이야", "어떤 분야를 찾으세요?"));
         chatService.handle(new ChatRequest("국민취업지원제도가 뭐야?", history));
@@ -658,7 +655,7 @@ class ChatServiceTest {
         when(policyService.getPolicyDetail(2L, null)).thenReturn(policyDetail(2L, "청년월세지원"));
         ArgumentCaptor<com.mozip.server.ai.dto.PolicyDetailGrounding> detailCaptor =
                 ArgumentCaptor.forClass(com.mozip.server.ai.dto.PolicyDetailGrounding.class);
-        when(chatResponseGenerationService.generate(any(), anyList(), detailCaptor.capture(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), anyList(), detailCaptor.capture(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("신청 방법"));
 
         List<ChatTurn> history = List.of(new ChatTurn("월세 지원 알려줘", "이런 정책이 있어요", List.of(2L)));
@@ -681,7 +678,7 @@ class ChatServiceTest {
                 matchResult(3L, "전세자금대출", null, EligibilityStatus.NEEDS_REVIEW)));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("비교"));
 
         List<ChatTurn> history = List.of(new ChatTurn("주거 정책 알려줘", "이런 정책이 있어요", List.of(3L, 2L)));
@@ -702,7 +699,7 @@ class ChatServiceTest {
                 matchResult(2L, "전세자금대출", null, EligibilityStatus.NEEDS_REVIEW)));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("비교"));
 
         chatService.handle(request("청년월세지원이랑 전세자금대출 뭐가 달라?"));
@@ -725,7 +722,7 @@ class ChatServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<GroundingPolicy>> groundingCaptor = ArgumentCaptor.forClass(List.class);
-        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), groundingCaptor.capture(), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("답변"));
 
         ChatResponse response = chatService.handle(request("청년 월세"));
@@ -747,10 +744,8 @@ class ChatServiceTest {
                 .regionScope(RegionScope.NATIONAL)
                 .status(PolicyStatus.ALWAYS_OPEN)
                 .build();
-        when(conditionExtractionService.extract(any()))
-                .thenReturn(extraction(null, null, null, null, null, null, null, List.of()));
         when(policyRepository.findAll()).thenReturn(List.of(policy));
-        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList()))
+        when(chatResponseGenerationService.generate(any(), eq(List.of()), isNull(), anyList(), anyList(), any()))
                 .thenReturn(new ChatResponseResponse("용어 설명"));
 
         ChatResponse response = chatService.handle(request("기준중위소득이 뭐야?"));
@@ -758,6 +753,7 @@ class ChatServiceTest {
         assertThat(response.reply()).isEqualTo("용어 설명");
         assertThat(response.matchedPolicies()).isEmpty();
         verify(chatPolicySearchService, never()).search(any());
+        verify(conditionExtractionService, never()).extract(any());
     }
 
     private ChatRequest request(String message) {
