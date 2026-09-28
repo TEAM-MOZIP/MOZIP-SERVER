@@ -88,7 +88,8 @@ class ChatResponseClientTest {
                 List.of(),
                 null,
                 List.of(new UnresolvedCondition(ConditionAxis.EMPLOYMENT_STATUS, "프리랜서")),
-                List.of()
+                List.of(),
+                null
         );
 
         mockServer.expect(requestTo("http://localhost:9999/api/v1/chat/respond"))
@@ -169,7 +170,8 @@ class ChatResponseClientTest {
                 List.of(),
                 null,
                 List.of(),
-                List.of(new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 취업지원서비스와 소득지원을 결합한 제도입니다."))
+                List.of(new ChatTurn("국민취업지원제도 알려줘", "국민취업지원제도는 취업지원서비스와 소득지원을 결합한 제도입니다.")),
+                null
         );
 
         mockServer.expect(requestTo("http://localhost:9999/api/v1/chat/respond"))
@@ -193,7 +195,8 @@ class ChatResponseClientTest {
                         "저소득 구직자 취업지원")),
                 new PolicyDetailGrounding("국민취업지원제도", "요약", "만 15세 이상 69세 이하 구직자", "상시 신청 가능", "고용노동부"),
                 List.of(),
-                List.of()
+                List.of(),
+                null
         );
     }
 }

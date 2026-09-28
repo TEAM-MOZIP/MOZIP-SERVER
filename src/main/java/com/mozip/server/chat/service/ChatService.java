@@ -105,13 +105,16 @@ public class ChatService {
         String message = request.message();
         List<ChatTurn> history = request.history();
 
+        List<Policy> policies = policyRepository.findAll();
+
         // 용어·개념 뜻을 묻는 질문은 조건 추출·정책 검색을 모두 건너뛴다.
         // handleGeneralOrKeywordSearch에만 체크가 있으면 조건 추출이 소득/지역 등을 잡아
         // handleConditionSearch 경로로 빠질 때 TERM 판단을 놓친다.
-        if (isTermQuestion(message)) {
+        // 단, "국민취업지원제도가 뭐야?"처럼 정책 이름을 물은 경우는 용어가 아니라 정책 설명(Case C)으로 처리한다.
+        if (isTermQuestion(message) && !mentionsPolicyTitle(message, policies)) {
             ChatResponseResponse termAnswer = chatResponseGenerationService.generate(
                     message, List.of(), null, List.of(),
-                    ChatResponseRequestMapper.toAiChatTurns(history));
+                    ChatResponseRequestMapper.toAiChatTurns(history), null);
             return chatAnswerAssembler.assemble(termAnswer, Map.of(), null, List.of(), List.of());
         }
 
@@ -130,7 +133,6 @@ public class ChatService {
 
         // 현재 메시지에 조건이 없으면, 특정 정책 이름을 물었는지(Case C)부터 본다 — 이전 턴 조건을 이어받아
         // 목록 탐색으로 빠지면 "효행장려금 지급 알려줘" 같은 질문에 해당 정책 설명을 못 하게 된다.
-        List<Policy> policies = policyRepository.findAll();
         List<Policy> titleMatches = matchPoliciesByTitle(message, policies);
         if (!titleMatches.isEmpty()) {
             return handlePolicyDetail(message, current, titleMatches, keywords, unresolvedConditionsOf(current),
@@ -167,6 +169,12 @@ public class ChatService {
                     contextKeywords, history, userText);
         }
         return handleGeneralOrKeywordSearch(message, current, policies, keywords, history, userText);
+    }
+
+    /** 메시지에 특정 정책 이름이 들어 있으면 true — 하나(Case C)든 여러 개(비교)든 정책 질문으로 본다. */
+    private boolean mentionsPolicyTitle(String message, List<Policy> policies) {
+        return !matchPoliciesByTitle(message, policies).isEmpty()
+                || distinctTitleMatches(message, policies).size() > 1;
     }
 
     /** 용어·개념의 뜻을 묻는 질문이면 true — 이때는 키워드로 정책을 검색하지 않는다. */
@@ -359,7 +367,7 @@ public class ChatService {
         }
 
         ChatResponseResponse answer = chatResponseGenerationService.generate(message, List.of(), null,
-                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history));
+                unresolvedConditions, ChatResponseRequestMapper.toAiChatTurns(history), null);
 
         return chatAnswerAssembler.assemble(answer, Map.of(), null, List.of(),
                 unresolvedConditions.stream().map(ChatUnresolvedConditionResponse::from).toList());
