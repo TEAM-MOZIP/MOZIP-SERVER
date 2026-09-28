@@ -7,6 +7,7 @@ import com.mozip.server.ai.dto.ChatTurn;
 import com.mozip.server.ai.dto.GroundingPolicy;
 import com.mozip.server.ai.dto.PolicyDetailGrounding;
 import com.mozip.server.ai.dto.UnresolvedCondition;
+import com.mozip.server.ai.dto.UserConditionGrounding;
 import com.mozip.server.ai.exception.ChatResponseUnavailableException;
 import java.util.List;
 import org.slf4j.Logger;
@@ -31,10 +32,21 @@ public class ChatResponseGenerationService {
     }
 
     /** AI 답변(요약 문장 + 블록 + 후속 질문). 요약 문장(reply)이 비어 있으면 실패로 본다. */
-    public ChatResponseResponse generate(String message, List<GroundingPolicy> groundingPolicies, PolicyDetailGrounding policyDetail,
-                            List<UnresolvedCondition> unresolvedConditions, List<ChatTurn> history) {
+    public ChatResponseResponse generate(String message, List<GroundingPolicy> groundingPolicies,
+                                         PolicyDetailGrounding policyDetail,
+                                         List<UnresolvedCondition> unresolvedConditions,
+                                         List<ChatTurn> history) {
+        return generate(message, groundingPolicies, policyDetail, unresolvedConditions, history, null);
+    }
+
+    /** 사용자 조건(나이·지역·취업상태 등)을 AI에 함께 전달하는 오버로드. */
+    public ChatResponseResponse generate(String message, List<GroundingPolicy> groundingPolicies,
+                                         PolicyDetailGrounding policyDetail,
+                                         List<UnresolvedCondition> unresolvedConditions,
+                                         List<ChatTurn> history,
+                                         UserConditionGrounding userCondition) {
         ChatResponseRequest request =
-                new ChatResponseRequest(message, groundingPolicies, policyDetail, unresolvedConditions, history);
+                new ChatResponseRequest(message, groundingPolicies, policyDetail, unresolvedConditions, history, userCondition);
 
         ChatResponseResponse response;
         try {
